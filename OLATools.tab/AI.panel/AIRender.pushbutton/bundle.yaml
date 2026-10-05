@@ -1,0 +1,9 @@
+title: AI Render
+tooltip: >
+  Export the active 3D view, send it to an AI image generator with a
+  custom prompt, and place a before/after comparison on a new sheet.
+engine:
+  name: ironpython2
+  # IronPython2 (not CPython3) because pyrevit.forms/WPF only works on this
+  # engine. We use System.Net.WebClient for the HTTP call instead of
+  # `requests`; IronPython's built-in json/base64 modules cover the rest.

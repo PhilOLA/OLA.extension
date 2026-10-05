@@ -1,0 +1,9 @@
+title: AI Arch Video
+tooltip: >
+  Export the active 3D view, render it with AI, then animate it into a
+  short architectural walkthrough video using Luma Ray 3.2. Result saved
+  as .mp4 to Documents\AIRender.
+engine:
+  name: ironpython2
+  # IronPython2 required for pyrevit.forms/WPF. HTTP calls use
+  # System.Net.WebClient instead of requests.

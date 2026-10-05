@@ -1,0 +1,42 @@
+{
+  "project": "Project2", 
+  "snapshots": [
+    {
+      "score": 100, 
+      "counts": {
+        "OK": 6, 
+        "WARN": 0, 
+        "ERROR": 0, 
+        "FAIL": 0, 
+        "INFO": 0
+      }, 
+      "timestamp": "2026-09-19T11:22:13", 
+      "checks": {
+        "link_status": {
+          "status": "OK", 
+          "count": 0
+        }, 
+        "design_options": {
+          "status": "OK", 
+          "count": 0
+        }, 
+        "unplaced_rooms": {
+          "status": "OK", 
+          "count": 0
+        }, 
+        "imported_dwgs": {
+          "status": "OK", 
+          "count": 0
+        }, 
+        "duplicate_sheet_numbers": {
+          "status": "OK", 
+          "count": 0
+        }, 
+        "duplicate_view_names": {
+          "status": "OK", 
+          "count": 0
+        }
+      }
+    }
+  ]
+}

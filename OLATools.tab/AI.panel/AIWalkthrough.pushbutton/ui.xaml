@@ -1,0 +1,250 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        Title="AI Walkthrough" Height="880" Width="640"
+        Background="#FFEEEEF2">
+
+    <Window.Resources>
+        <Style x:Key="SectionLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#FF8A8A94"/>
+            <Setter Property="Margin" Value="0,0,0,5"/>
+        </Style>
+
+        <Style x:Key="RoundedTextBox" TargetType="TextBox">
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="BorderBrush" Value="#FFDCDCE3"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="RoundedComboBox" TargetType="ComboBox">
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Padding" Value="8,0"/>
+            <Setter Property="BorderBrush" Value="#FFDCDCE3"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton x:Name="ToggleButton" Focusable="False"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                          ClickMode="Press">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border Background="{Binding Background, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                                BorderBrush="{Binding BorderBrush, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                                BorderThickness="1"
+                                                CornerRadius="6"/>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <ContentPresenter IsHitTestVisible="False"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                              Margin="{TemplateBinding Padding}"
+                                              VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                            <TextBlock Text="&#9662;" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                       Margin="0,0,10,0" Foreground="#FF8A8A94" IsHitTestVisible="False"/>
+                            <Popup x:Name="Popup" Placement="Bottom"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                                <Border Background="White" BorderBrush="#FFDCDCE3" BorderThickness="1"
+                                        CornerRadius="6" MinWidth="{TemplateBinding ActualWidth}"
+                                        MaxHeight="220" Margin="0,4,0,0">
+                                    <ScrollViewer>
+                                        <ItemsPresenter/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ComboItemTooltip" TargetType="ComboBoxItem">
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="ToolTip" Value="{Binding RelativeSource={RelativeSource Self}, Path=Content}"/>
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Border Margin="14" Background="White" CornerRadius="10" Padding="22">
+            <Border.Effect>
+                <DropShadowEffect Color="#FF000000" BlurRadius="20" ShadowDepth="3" Opacity="0.12"/>
+            </Border.Effect>
+
+            <!-- Three panels occupy the same space; only one is visible at a time. -->
+            <Grid>
+
+                <!-- ===================== SETTINGS PANEL ===================== -->
+                <Grid x:Name="settings_panel">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="AI Walkthrough" FontSize="21" FontWeight="Bold" Foreground="#FF222228"/>
+                    <TextBlock Grid.Row="1" Text="Renders the active 3D view, then animates it into a short video."
+                               Foreground="#FF8A8A94" Margin="0,4,0,18" TextWrapping="Wrap" FontSize="12.5"/>
+
+                    <TextBlock Grid.Row="2" Text="STYLE (FOR THE STILL RENDER)" Style="{StaticResource SectionLabel}"/>
+                    <ComboBox Grid.Row="3" x:Name="style_combo" Style="{StaticResource RoundedComboBox}"
+                              ItemContainerStyle="{StaticResource ComboItemTooltip}" Margin="0,0,0,16"/>
+
+                    <TextBlock Grid.Row="4" Text="RECENT EXTRA DIRECTION PROMPTS" Style="{StaticResource SectionLabel}"/>
+                    <ComboBox Grid.Row="5" x:Name="recent_extra_combo" Style="{StaticResource RoundedComboBox}"
+                              ItemContainerStyle="{StaticResource ComboItemTooltip}" Margin="0,0,0,16"
+                              SelectionChanged="recent_extra_combo_changed"/>
+
+                    <TextBlock Grid.Row="6" Text="EXTRA DIRECTION (MATERIALS, MOOD, CONTEXT)" Style="{StaticResource SectionLabel}"/>
+                    <TextBox Grid.Row="7" x:Name="extra_box" Style="{StaticResource RoundedTextBox}"
+                             Height="80" AcceptsReturn="True" TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto" Margin="0,0,0,14"/>
+
+                    <TextBlock Grid.Row="8" Text="IMAGE QUALITY" Style="{StaticResource SectionLabel}"/>
+                    <ComboBox Grid.Row="9" x:Name="image_quality_combo" Style="{StaticResource RoundedComboBox}"
+                              ItemContainerStyle="{StaticResource ComboItemTooltip}" Margin="0,0,0,16"/>
+
+                    <TextBlock Grid.Row="10" Text="VIDEO QUALITY" Style="{StaticResource SectionLabel}"/>
+                    <ComboBox Grid.Row="11" x:Name="video_quality_combo" Style="{StaticResource RoundedComboBox}"
+                              ItemContainerStyle="{StaticResource ComboItemTooltip}" Margin="0,0,0,16"/>
+
+                    <TextBlock Grid.Row="12" Text="RECENT MOTION PROMPTS" Style="{StaticResource SectionLabel}"/>
+                    <ComboBox Grid.Row="13" x:Name="recent_motion_combo" Style="{StaticResource RoundedComboBox}"
+                              ItemContainerStyle="{StaticResource ComboItemTooltip}" Margin="0,0,0,16"
+                              SelectionChanged="recent_motion_combo_changed"/>
+
+                    <TextBlock Grid.Row="14" Text="MOTION / CAMERA DIRECTION (OPTIONAL)" Style="{StaticResource SectionLabel}"/>
+                    <TextBox Grid.Row="15" x:Name="motion_box" Style="{StaticResource RoundedTextBox}"
+                             Height="80" AcceptsReturn="True" TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto" Margin="0,0,0,14"/>
+
+                    <StackPanel Grid.Row="16" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button x:Name="cancel_btn" Content="Cancel" Width="92" Height="32"
+                                Margin="0,0,8,0" Click="cancel_click"
+                                Background="#FFEDEDF1" Foreground="#FF444450"/>
+                        <Button x:Name="render_btn" Content="Generate" Width="100" Height="32"
+                                Click="render_click" Background="#FF2F6FED" Foreground="White"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- ===================== PROGRESS PANEL ===================== -->
+                <Grid x:Name="progress_panel" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" VerticalAlignment="Center">
+                        <TextBlock Text="AI Walkthrough" FontSize="21" FontWeight="Bold" Foreground="#FF222228"
+                                   HorizontalAlignment="Center" Margin="0,0,0,24"/>
+                        <TextBlock x:Name="progress_status_text" Text="Working..." FontSize="13.5"
+                                   Foreground="#FF44444E" TextWrapping="Wrap" TextAlignment="Center"
+                                   Margin="0,0,0,18"/>
+                        <ProgressBar IsIndeterminate="True" Height="6" Margin="0,0,0,26"/>
+                        <Button x:Name="progress_cancel_btn" Content="Close" Width="90" Height="32"
+                                HorizontalAlignment="Center" Click="cancel_click"
+                                Background="#FFEDEDF1" Foreground="#FF444450"/>
+                    </StackPanel>
+
+                    <Image x:Name="logo_image" Grid.Row="1" Height="170" Stretch="Uniform"
+                           HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                           Margin="0,0,0,16" Opacity="0.85"/>
+                </Grid>
+
+                <!-- ===================== PREVIEW PANEL ===================== -->
+                <Grid x:Name="preview_panel" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="AI Walkthrough" FontSize="21" FontWeight="Bold" Foreground="#FF222228"
+                               Margin="0,0,0,14"/>
+
+                    <Border Grid.Row="1" Background="Black" CornerRadius="6" ClipToBounds="True">
+                        <MediaElement x:Name="video_player"
+                                      LoadedBehavior="Manual" UnloadedBehavior="Stop"
+                                      Stretch="Uniform"
+                                      MediaEnded="video_ended" MediaFailed="video_failed"/>
+                    </Border>
+
+                    <TextBlock Grid.Row="2" x:Name="preview_status_text" Text=""
+                               Foreground="#FF8A8A94" FontSize="11" TextWrapping="Wrap"
+                               Margin="0,10,0,10"/>
+
+                    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button x:Name="open_folder_btn" Content="Open Folder" Width="110" Height="32"
+                                Margin="0,0,8,0" Click="open_folder_click"
+                                Background="#FFEDEDF1" Foreground="#FF444450"/>
+                        <Button x:Name="new_render_btn" Content="New Render" Width="110" Height="32"
+                                Margin="0,0,8,0" Click="new_render_click"
+                                Background="#FFEDEDF1" Foreground="#FF444450"/>
+                        <Button x:Name="close_btn" Content="Close" Width="90" Height="32"
+                                Click="close_click" Background="#FF2F6FED" Foreground="White"/>
+                    </StackPanel>
+                </Grid>
+
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

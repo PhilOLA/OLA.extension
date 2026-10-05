@@ -1,0 +1,10 @@
+title: Elevation Crop Fixer
+tooltip: >
+  Batch-extend interior elevation crop regions in selected rooms past the
+  bounding walls and above the ceiling, and tidy level/grid extents in
+  those views. Select rooms, set offsets, run.
+tooltip_image: null
+author: Phil May
+min_revit_version: 2022
+engine:
+  clean: false

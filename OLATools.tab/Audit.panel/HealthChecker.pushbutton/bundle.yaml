@@ -1,0 +1,68 @@
+# bundle.yaml  —  Model Health Checker
+# pyRevit pushbutton configuration
+# Place this file inside HealthChecker.pushbutton/ alongside script.py
+
+# ---------------------------------------------------------------------------
+# Button identity
+# ---------------------------------------------------------------------------
+name: HealthChecker
+title: Health\nChecker
+tooltip: >
+  Model Health Checker v1.0.0
+
+  Audits the active Revit model across 28 checks in 5 categories:
+    • Model bloat       — imported DWGs, unused families, raster images,
+                          oversized families, in-place families, groups,
+                          scope boxes, reference planes
+    • Data integrity    — warnings, unplaced rooms, phase, sheet numbers,
+                          design options, tags, pinned elements,
+                          sheets with no views, duplicate view names
+    • Coordination      — link status, grid/level extents, open rooms,
+                          workset usage
+    • Performance       — views not on sheets, view templates,
+                          detail line overload, ceiling heights
+    • Parameters (opt)  — duplicate params, unused params,
+                          unassociated shared params
+
+  Results shown in a split-pane window with expandable detail rows,
+  colour-coded badges, fix actions and CSV/Excel/JSON export.
+
+author: OLA BIM Team
+version: 1.0.0
+
+# ---------------------------------------------------------------------------
+# pyRevit engine
+# ---------------------------------------------------------------------------
+engine:
+  type: ironpython
+  version: 2712        # matches IronPython engine in pyRevit 6.4.0+
+  clean_engine: true   # fresh engine per run — avoids stale module state
+
+# ---------------------------------------------------------------------------
+# UI placement
+# ---------------------------------------------------------------------------
+# Sits in MyTools.tab → Audit.panel
+# Panel and tab are defined in the extension's tab YAML; this file
+# only needs to declare the button itself.
+
+# ---------------------------------------------------------------------------
+# Button icon
+# ---------------------------------------------------------------------------
+# Place icon files next to this bundle.yaml:
+#   icon.png       —  96 × 96 px, transparent background
+#   icon.dark.png  —  96 × 96 px version for dark UI theme (optional)
+#
+# If absent, pyRevit falls back to a default text button.
+
+# ---------------------------------------------------------------------------
+# Context sensitivity
+# ---------------------------------------------------------------------------
+context:
+  active_document: true    # button is greyed out when no document is open
+  zero_doc_state: disabled
+
+# ---------------------------------------------------------------------------
+# Min Revit version
+# ---------------------------------------------------------------------------
+min_revit_ver: 2024
+max_revit_ver: 2026

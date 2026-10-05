@@ -1,0 +1,8 @@
+name: Revision Stamper
+tooltip: Apply or create revisions across multiple sheets in one click.
+title: Revision Manager
+author: OL
+min_revit_ver: 2024
+engine:
+  type: ironpython
+  version: 2712

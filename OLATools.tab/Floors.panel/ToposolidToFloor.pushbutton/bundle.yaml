@@ -1,0 +1,9 @@
+title: 'Toposolid\nto Floor'
+tooltip: >
+  Select a Toposolid or a Toposolid sub-region, then use the popup to pick
+  the Level and Floor Type and choose whether to drape the new Floor to
+  match the toposolid's slope (with adjustable point spacing) or create it
+  flat.
+  You'll be asked to pick the Toposolid first, before the popup opens.
+author: Phil
+context: zero-doc

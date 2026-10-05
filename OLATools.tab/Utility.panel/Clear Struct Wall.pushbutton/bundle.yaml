@@ -1,0 +1,9 @@
+title: Set\nStructural
+tooltip: |
+  Enables the built-in Structural checkbox (instance parameter) on ALL
+  walls in the host model.
+
+  Linked-model walls are silently skipped.
+  Walls with read-only parameters (groups, constraints) are reported
+  in a pre-run confirmation dialog before any changes are made.
+author: Nano Banana

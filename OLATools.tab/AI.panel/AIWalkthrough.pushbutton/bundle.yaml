@@ -1,0 +1,9 @@
+title: AI Walkthrough
+tooltip: >
+  Render the active 3D view with AI, then animate that still into a short
+  walkthrough video with Veo 3.1. The result is saved as an .mp4 next to
+  your AI Render exports (Revit can't embed or play video).
+engine:
+  name: ironpython2
+  # Same reasoning as AI Render: pyrevit.forms/WPF needs IronPython2, and
+  # we use System.Net.WebClient instead of `requests`.
