@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.4.9
+Export & Publish v3.5.0
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -419,7 +419,7 @@ def build_sheet_filename(sheet, prefix, include_revision):
         rev = rev.strip()
         rev_suffix = "-Rev {}".format(rev) if rev else "-REV-"
 
-    name = "{}-{}{}".format(numbered, full_title, rev_suffix)
+    name = "{} {}{}".format(numbered, full_title, rev_suffix)
     name = re.sub(INVALID_CHARS, "_", name)
     return name.strip("_. ")
 
@@ -644,7 +644,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.4.9 - Log",
+        u"Export & Publish v3.5.0 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -683,7 +683,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.4.9"
+    Title="Export &amp; Publish — v3.5.0"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -933,7 +933,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.4.9" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.0" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
@@ -968,14 +968,18 @@ XAML = u"""
                 <StackPanel Grid.Row="0">
                   <TextBlock Text="SHEET SELECTION" Style="{StaticResource SectionLabel}" Margin="0,0,0,4"/>
                   <Separator Style="{StaticResource Divider}"/>
-                  <StackPanel Orientation="Horizontal" Margin="0,6,0,8">
+                  <StackPanel Orientation="Horizontal" Margin="0,6,0,4">
                     <RadioButton x:Name="RbPrintSet"    Content="Print Set"
                                  GroupName="SheetSel" IsChecked="True" Margin="0,0,18,0"/>
                     <RadioButton x:Name="RbActiveSheet" Content="Current Sheet"
                                  GroupName="SheetSel" Margin="0,0,18,0"/>
-                    <RadioButton x:Name="RbAllSheets"   Content="All Sheets in Model"
+                    <RadioButton x:Name="RbAllSheets"   Content="Select Sheets"
                                  GroupName="SheetSel"/>
                   </StackPanel>
+                  <TextBlock x:Name="TxtSelectSheetsHint"
+                             Text="Check or uncheck sheets below to choose which ones to export."
+                             FontSize="10" Foreground="#888780"
+                             Margin="0,0,0,6" Visibility="Collapsed"/>
                 </StackPanel>
 
                 <!-- PnlPrintSet: combobox + filter + stretching DataGrid -->
@@ -1302,6 +1306,11 @@ XAML = u"""
                                Foreground="#4DB6AC" Margin="0,0,0,8"/>
                     <TextBlock Text="DWG OUTPUT FOLDER" Style="{StaticResource SectionLabel}" Margin="0,0,0,4"/>
                     <Separator Style="{StaticResource Divider}"/>
+                    <!-- Same-folder-as-PDF shortcut (only useful in Both mode) -->
+                    <CheckBox x:Name="ChkDwgSameFolder"
+                              Content="Same folder as PDF"
+                              Foreground="#4DB6AC" Margin="0,6,0,4"
+                              Visibility="Collapsed"/>
                     <Grid Margin="0,0,0,4">
                       <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -1814,10 +1823,11 @@ class ExportDialog(object):
         self.rb_acc_overwrite  = _("RbAccOverwrite")
 
         # Sheet selection
-        self.rb_print_set      = _("RbPrintSet")
-        self.rb_active_sheet   = _("RbActiveSheet")
-        self.rb_all_sheets     = _("RbAllSheets")
-        self.cbo_print_set     = _("CboPrintSet")
+        self.rb_print_set           = _("RbPrintSet")
+        self.rb_active_sheet        = _("RbActiveSheet")
+        self.rb_all_sheets          = _("RbAllSheets")
+        self.txt_select_sheets_hint = _("TxtSelectSheetsHint")
+        self.cbo_print_set          = _("CboPrintSet")
         self.txt_no_print_sets = _("TxtNoPrintSets")
         self.txt_sheet_count   = _("TxtSheetCount")
         self.txt_active_sheet  = _("TxtActiveSheetName")
@@ -1847,12 +1857,13 @@ class ExportDialog(object):
         self.txt_merged_name   = _("TxtMergedName")
 
         # DWG output
-        self.pnl_dwg_output    = _("PnlDwgOutput")
-        self.cbo_dwg_setup     = _("CboDwgSetup")
-        self.txt_dwg_folder    = _("TxtDwgFolder")
-        self.btn_browse_dwg    = _("BtnBrowseDwg")
-        self.btn_create_dwg    = _("BtnCreateDwg")
-        self.txt_dwg_status    = _("TxtDwgFolderStatus")
+        self.pnl_dwg_output      = _("PnlDwgOutput")
+        self.cbo_dwg_setup       = _("CboDwgSetup")
+        self.txt_dwg_folder      = _("TxtDwgFolder")
+        self.btn_browse_dwg      = _("BtnBrowseDwg")
+        self.btn_create_dwg      = _("BtnCreateDwg")
+        self.txt_dwg_status      = _("TxtDwgFolderStatus")
+        self.chk_dwg_same_folder = _("ChkDwgSameFolder")
 
         # Print settings / appearance / options
         self.exp_print_settings   = _("ExpPrintSettings")
@@ -2039,12 +2050,14 @@ ACCDocs not found"
         # PDF folder
         self.btn_browse_pdf.Click   += self._browse_pdf
         self.btn_create_pdf.Click   += self._create_pdf_folder
-        self.txt_pdf_folder.TextChanged += self._on_pdf_folder_changed
+        self.txt_pdf_folder.TextChanged += self._on_pdf_folder_changed_with_sync
 
         # DWG folder
         self.btn_browse_dwg.Click   += self._browse_dwg
         self.btn_create_dwg.Click   += self._create_dwg_folder
         self.txt_dwg_folder.TextChanged += self._on_dwg_folder_changed
+        self.chk_dwg_same_folder.Checked   += self._on_dwg_same_folder_changed
+        self.chk_dwg_same_folder.Unchecked += self._on_dwg_same_folder_changed
 
         # Merge / merged name
         self.chk_merge.Checked      += self._on_merge_changed
@@ -2117,11 +2130,31 @@ ACCDocs not found"
         self.pnl_dwg_output.Visibility = \
             Visibility.Visible if is_dwg else Visibility.Collapsed
 
+        # "Same folder as PDF" only makes sense when BOTH panels are visible
+        is_both = is_pdf and is_dwg
+        self.chk_dwg_same_folder.Visibility = \
+            Visibility.Visible if is_both else Visibility.Collapsed
+        if not is_both and self.chk_dwg_same_folder.IsChecked:
+            self.chk_dwg_same_folder.IsChecked = False
+        # When same-folder is on, keep DWG folder in sync with PDF folder
+        if is_both and self.chk_dwg_same_folder.IsChecked:
+            self._sync_dwg_folder_to_pdf()
+        # Disable DWG folder controls when same-folder is active
+        same = bool(self.chk_dwg_same_folder.IsChecked)
+        self.txt_dwg_folder.IsEnabled  = not same
+        self.txt_dwg_folder.Opacity    = 0.5 if same else 1.0
+        self.btn_browse_dwg.IsEnabled  = not same
+        self.btn_create_dwg.IsEnabled  = False  # re-evaluated by _check_folder_state
+
         # ComboBox greyed out (not hidden) when not in Print Set mode
         self.cbo_print_set.IsEnabled = is_ps
         self.cbo_print_set.Opacity   = 1.0 if is_ps else 0.4
         # TxtActiveSheetName no longer used (DataGrid shows all modes)
         self.txt_active_sheet.Visibility = Visibility.Collapsed
+
+        # "Select Sheets" hint — only shown in manual-select mode
+        self.txt_select_sheets_hint.Visibility = \
+            Visibility.Visible if is_all else Visibility.Collapsed
 
         # ACC destination panel visibility
         self.pnl_acc_dest.Visibility = \
@@ -2758,6 +2791,28 @@ ACCDocs not found"
             self.txt_dwg_folder.Text.strip(),
             self.btn_create_dwg, self.txt_dwg_status)
 
+    def _sync_dwg_folder_to_pdf(self):
+        """Copy the current PDF folder path into the DWG folder field."""
+        pdf_path = self.txt_pdf_folder.Text.strip()
+        if self.txt_dwg_folder.Text.strip() != pdf_path:
+            self.txt_dwg_folder.Text = pdf_path
+
+    def _on_dwg_same_folder_changed(self, s, e):
+        same = bool(self.chk_dwg_same_folder.IsChecked)
+        self.txt_dwg_folder.IsEnabled = not same
+        self.txt_dwg_folder.Opacity   = 0.5 if same else 1.0
+        self.btn_browse_dwg.IsEnabled = not same
+        if same:
+            self._sync_dwg_folder_to_pdf()
+
+    def _on_pdf_folder_changed_with_sync(self, s, e):
+        """Extended PDF folder handler: also updates DWG folder when same-folder is on."""
+        self._check_folder_state(
+            self.txt_pdf_folder.Text.strip(),
+            self.btn_create_pdf, self.txt_pdf_status)
+        if bool(self.chk_dwg_same_folder.IsChecked):
+            self._sync_dwg_folder_to_pdf()
+
     def _on_acc_pdf_folder_changed(self, s, e):
         self._check_acc_folder(
             self.txt_acc_pdf_folder.Text.strip(),
@@ -2790,6 +2845,8 @@ ACCDocs not found"
             self.txt_pdf_folder.Text = folder
             self.txt_pdf_folder.CaretIndex = len(folder)
             self._check_folder_state(folder, self.btn_create_pdf, self.txt_pdf_status)
+            if bool(self.chk_dwg_same_folder.IsChecked):
+                self._sync_dwg_folder_to_pdf()
 
     def _browse_dwg(self, s, e):
         folder = self._folder_dialog(
