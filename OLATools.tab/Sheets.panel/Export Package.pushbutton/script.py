@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.1
+Export & Publish v3.5.2
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -350,6 +350,64 @@ def get_sheet_size(sheet):
 
 
 
+def get_all_sheet_sizes(document):
+    """Single-pass title block collector: returns {sheet_elem_id (int): size_str}.
+    One FilteredElementCollector across the whole model — fast even on 1000+ sheets."""
+    MM_PER_FT = 304.8
+    ISO_SIZES = [
+        ("A4",  210,  297),
+        ("A3",  297,  420),
+        ("A2",  420,  594),
+        ("A1",  594,  841),
+        ("A0",  841, 1189),
+    ]
+    TOLERANCE = 35
+
+    def classify(w_mm, h_mm):
+        lo, hi = min(w_mm, h_mm), max(w_mm, h_mm)
+        for label, s, l in ISO_SIZES:
+            if abs(lo - s) < TOLERANCE and abs(hi - l) < TOLERANCE:
+                return label
+        return None
+
+    size_map = {}
+    try:
+        tbs = FilteredElementCollector(document)\
+            .OfCategory(BuiltInCategory.OST_TitleBlocks)\
+            .WhereElementIsNotElementType()\
+            .ToElements()
+        for tb in tbs:
+            try:
+                owner_id = tb.OwnerViewId.IntegerValue
+                # Method A: family/type name
+                try:
+                    name = (tb.Symbol.Family.Name + " " + tb.Symbol.Name).upper()
+                    for label, _, _ in ISO_SIZES:
+                        if label in name:
+                            size_map[owner_id] = label
+                            raise StopIteration
+                except StopIteration:
+                    continue
+                except Exception:
+                    pass
+                # Method B: bounding box
+                try:
+                    bb = tb.get_BoundingBox(None)
+                    if bb:
+                        w = abs(bb.Max.X - bb.Min.X) * MM_PER_FT
+                        h = abs(bb.Max.Y - bb.Min.Y) * MM_PER_FT
+                        result = classify(w, h)
+                        size_map[owner_id] = result if result else \
+                            u"{:.0f}x{:.0f}".format(max(w, h), min(w, h))
+                except Exception:
+                    pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return size_map
+
+
 def get_active_sheet():
     try:
         av = uidoc.ActiveView
@@ -644,7 +702,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.1 - Log",
+        u"Export & Publish v3.5.2 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -683,7 +741,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.5.1"
+    Title="Export &amp; Publish — v3.5.2"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -933,7 +991,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.5.1" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.2" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
@@ -2296,8 +2354,30 @@ ACCDocs not found"
                 [s for s in collector.ToElements() if not s.IsPlaceholder],
                 key=lambda s: s.SheetNumber
             )
+            # Single-pass title block lookup — one collector for all sheets
+            tb_size_map = get_all_sheet_sizes(doc)
             for sh in sheets:
-                _add_row(sh, size=u"—")
+                # Method 1: Outline (fast, no collector)
+                size = None
+                try:
+                    MM_PER_FT = 304.8
+                    ISO_SIZES = [("A4",210,297),("A3",297,420),("A2",420,594),
+                                 ("A1",594,841),("A0",841,1189)]
+                    TOLERANCE = 35
+                    o = sh.Outline
+                    w = abs(o.Max.U - o.Min.U) * MM_PER_FT
+                    h = abs(o.Max.V - o.Min.V) * MM_PER_FT
+                    lo, hi = min(w, h), max(w, h)
+                    for label, s, l in ISO_SIZES:
+                        if abs(lo - s) < TOLERANCE and abs(hi - l) < TOLERANCE:
+                            size = label
+                            break
+                except Exception:
+                    pass
+                # Methods 2 & 3: pre-built title block map
+                if size is None:
+                    size = tb_size_map.get(sh.Id.IntegerValue, u"—")
+                _add_row(sh, size=size)
             self._sheets = sheets
 
         elif is_active:
