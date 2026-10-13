@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.0
+Export & Publish v3.5.3
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -350,6 +350,64 @@ def get_sheet_size(sheet):
 
 
 
+def get_all_sheet_sizes(document):
+    """Single-pass title block collector: returns {sheet_elem_id (int): size_str}.
+    One FilteredElementCollector across the whole model — fast even on 1000+ sheets."""
+    MM_PER_FT = 304.8
+    ISO_SIZES = [
+        ("A4",  210,  297),
+        ("A3",  297,  420),
+        ("A2",  420,  594),
+        ("A1",  594,  841),
+        ("A0",  841, 1189),
+    ]
+    TOLERANCE = 35
+
+    def classify(w_mm, h_mm):
+        lo, hi = min(w_mm, h_mm), max(w_mm, h_mm)
+        for label, s, l in ISO_SIZES:
+            if abs(lo - s) < TOLERANCE and abs(hi - l) < TOLERANCE:
+                return label
+        return None
+
+    size_map = {}
+    try:
+        tbs = FilteredElementCollector(document)\
+            .OfCategory(BuiltInCategory.OST_TitleBlocks)\
+            .WhereElementIsNotElementType()\
+            .ToElements()
+        for tb in tbs:
+            try:
+                owner_id = tb.OwnerViewId.IntegerValue
+                # Method A: family/type name
+                try:
+                    name = (tb.Symbol.Family.Name + " " + tb.Symbol.Name).upper()
+                    for label, _, _ in ISO_SIZES:
+                        if label in name:
+                            size_map[owner_id] = label
+                            raise StopIteration
+                except StopIteration:
+                    continue
+                except Exception:
+                    pass
+                # Method B: bounding box
+                try:
+                    bb = tb.get_BoundingBox(None)
+                    if bb:
+                        w = abs(bb.Max.X - bb.Min.X) * MM_PER_FT
+                        h = abs(bb.Max.Y - bb.Min.Y) * MM_PER_FT
+                        result = classify(w, h)
+                        size_map[owner_id] = result if result else \
+                            u"{:.0f}x{:.0f}".format(max(w, h), min(w, h))
+                except Exception:
+                    pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return size_map
+
+
 def get_active_sheet():
     try:
         av = uidoc.ActiveView
@@ -497,7 +555,15 @@ def _build_pdf_options(settings):
             if pp["black_white"] else ColorDepthType.Color
     except Exception: pass
     try:
-        opts.RasterQuality = RasterQualityType.High
+        _rq_map = {
+            "Draft":        RasterQualityType.Draft,
+            "Low":          RasterQualityType.Low,
+            "Medium":       RasterQualityType.Medium,
+            "High":         RasterQualityType.High,
+            "Presentation": RasterQualityType.Presentation,
+        }
+        opts.RasterQuality = _rq_map.get(
+            settings.get("raster_quality", "Medium"), RasterQualityType.Medium)
     except Exception: pass
     try:
         opts.PageOrientation = PageOrientationType.Landscape \
@@ -644,7 +710,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.0 - Log",
+        u"Export & Publish v3.5.3 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -683,7 +749,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.5.0"
+    Title="Export &amp; Publish — v3.5.3"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -933,7 +999,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.5.0" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.3" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
@@ -1473,7 +1539,18 @@ XAML = u"""
                       <TextBlock Text="PDF ENGINE" Style="{StaticResource SectionLabel}"/>
                       <Separator Style="{StaticResource Divider}"/>
                       <TextBlock Text="PDF engine: Native (Revit Export)"
-                                 FontSize="10" Foreground="#4DB6AC" Margin="0,2,0,6"/>
+                                 FontSize="10" Foreground="#4DB6AC" Margin="0,2,0,4"/>
+                      <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="Auto"/>
+                          <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Raster quality:"
+                                   FontSize="11" Foreground="#CCCCCC"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="CboRasterQuality" Grid.Column="1"
+                                  FontSize="11"/>
+                      </Grid>
 
                       <TextBlock Text="PRINT SETUP" Style="{StaticResource SectionLabel}"/>
                       <Separator Style="{StaticResource Divider}"/>
@@ -1870,6 +1947,7 @@ class ExportDialog(object):
         self.cbo_print_setup      = _("CboPrintSetup")
         self.chk_open_folder      = _("ChkOpenFolder")
         self.chk_overwrite        = _("ChkOverwritePrompt")
+        self.cbo_raster_quality   = _("CboRasterQuality")
 
         # Variable per-sheet print setup
         self.pnl_variable_assign  = _("PnlVariableAssign")
@@ -1931,6 +2009,14 @@ class ExportDialog(object):
                          if n == last_ps), 1)   # default to "(Use defaults)"
         self.cbo_print_setup.SelectedIndex = ps_idx
         self.exp_print_settings.IsExpanded = cfg.get("last_print_expanded", False)
+
+        # Raster quality dropdown
+        _rq_options = ["Draft", "Low", "Medium", "High", "Presentation"]
+        for opt in _rq_options:
+            self.cbo_raster_quality.Items.Add(opt)
+        last_rq = cfg.get("last_raster_quality", "Medium")
+        self.cbo_raster_quality.SelectedIndex = \
+            _rq_options.index(last_rq) if last_rq in _rq_options else 2
 
         # Print sets
         for name, _ in self.print_sets:
@@ -2264,8 +2350,9 @@ ACCDocs not found"
                 pass
             return False
 
-        def _add_row(sh, included=True):
-            size = get_sheet_size(sh)
+        def _add_row(sh, included=True, size=None):
+            if size is None:
+                size = get_sheet_size(sh)
             row = dt.NewRow()
             row["Included"]   = included
             row["SheetNo"]    = sh.SheetNumber
@@ -2295,8 +2382,30 @@ ACCDocs not found"
                 [s for s in collector.ToElements() if not s.IsPlaceholder],
                 key=lambda s: s.SheetNumber
             )
+            # Single-pass title block lookup — one collector for all sheets
+            tb_size_map = get_all_sheet_sizes(doc)
             for sh in sheets:
-                _add_row(sh)
+                # Method 1: Outline (fast, no collector)
+                size = None
+                try:
+                    MM_PER_FT = 304.8
+                    ISO_SIZES = [("A4",210,297),("A3",297,420),("A2",420,594),
+                                 ("A1",594,841),("A0",841,1189)]
+                    TOLERANCE = 35
+                    o = sh.Outline
+                    w = abs(o.Max.U - o.Min.U) * MM_PER_FT
+                    h = abs(o.Max.V - o.Min.V) * MM_PER_FT
+                    lo, hi = min(w, h), max(w, h)
+                    for label, s, l in ISO_SIZES:
+                        if abs(lo - s) < TOLERANCE and abs(hi - l) < TOLERANCE:
+                            size = label
+                            break
+                except Exception:
+                    pass
+                # Methods 2 & 3: pre-built title block map
+                if size is None:
+                    size = tb_size_map.get(sh.Id.IntegerValue, u"—")
+                _add_row(sh, size=size)
             self._sheets = sheets
 
         elif is_active:
@@ -3142,6 +3251,7 @@ ACCDocs not found"
             "dwg_setup_name":   dwg_setup_name,
             "open_folder":      bool(self.chk_open_folder.IsChecked),
             "overwrite_prompt": bool(self.chk_overwrite.IsChecked),
+            "raster_quality":   str(self.cbo_raster_quality.SelectedItem or "Medium"),
         }
 
     def _collect_variable_setups(self):
@@ -3336,6 +3446,7 @@ ACCDocs not found"
         cfg["pdf_engine"]           = settings["pdf_engine"]
         cfg["last_acc_overwrite"]   = settings["acc_overwrite"]
         cfg["last_print_expanded"]  = bool(self.exp_print_settings.IsExpanded)
+        cfg["last_raster_quality"]  = settings.get("raster_quality", "Medium")
         if settings.get("dwg_setup_name"):
             cfg["last_dwg_setup"] = settings["dwg_setup_name"]
 
