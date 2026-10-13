@@ -45,7 +45,7 @@ LAST_SHEET_NAME_KEY = "last_sheet_name"
 LAST_PLAN_TEMPLATE_KEY = "last_plan_template_name"
 LAST_ELEV_TEMPLATE_KEY = "last_elev_template_name"
 
-TOOL_VERSION = "1.0.1"
+TOOL_VERSION = "1.0.2"
 
 # ---- DEFAULTS (shown pre-filled in the dialog, editable there) ----
 GAP = 0.05  # feet between viewports in the grid (~0.6")
@@ -165,14 +165,84 @@ def title_block_display_name(tb):
     return "{}: {}".format(family_name, type_name)
 
 
-def get_selectable_plan_views():
-    """All non-template floor plan views, sorted by name."""
+def get_selectable_plan_views(type_id=None):
+    """All non-template floor plan views, sorted by name.
+    If type_id (int) is given, only views whose GetTypeId() matches are returned."""
     plans = DB.FilteredElementCollector(doc).OfClass(DB.ViewPlan).ToElements()
     result = [
         v for v in plans
         if not v.IsTemplate and v.ViewType == DB.ViewType.FloorPlan
+        and (type_id is None or int(v.GetTypeId().IntegerValue) == type_id)
     ]
     result.sort(key=lambda v: v.Name)
+    return result
+
+
+def get_plan_view_type_names():
+    """Return sorted list of (type_id_int, type_name) for all ViewFamilyTypes
+    that are actually used by at least one non-template floor plan view."""
+
+    # Pass 1: collect typeIds used by floor plan views
+    used_type_ids = set()
+    try:
+        plans = DB.FilteredElementCollector(doc).OfClass(DB.ViewPlan).ToElements()
+        for v in plans:
+            try:
+                if v.IsTemplate:
+                    continue
+                if v.ViewType != DB.ViewType.FloorPlan:
+                    continue
+                tid = int(v.GetTypeId().IntegerValue)
+                if tid > 0:
+                    used_type_ids.add(tid)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Pass 2: sweep ALL ViewFamilyType elements and match by Id.
+    # Uses the collector (valid object refs) rather than doc.GetElement()
+    # which returns .NET null for system-family types in IronPython.
+    type_id_to_name = {}
+    try:
+        vft_elems = DB.FilteredElementCollector(doc).OfClass(DB.ViewFamilyType).ToElements()
+        for t in vft_elems:
+            try:
+                tid = int(t.Id.IntegerValue)
+                if tid not in used_type_ids:
+                    continue
+                try:
+                    name = t.Name
+                except Exception:
+                    try:
+                        p = t.get_Parameter(DB.BuiltInParameter.SYMBOL_NAME_PARAM)
+                        name = p.AsString() if (p and p.HasValue) else None
+                    except Exception:
+                        name = None
+                if name:
+                    type_id_to_name[tid] = name
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return sorted(type_id_to_name.items(), key=lambda x: x[1])
+
+
+def build_placed_views_dict():
+    """Single Viewport collector sweep. Returns {view_id_int: sheet_number_str}."""
+    result = {}
+    try:
+        viewports = DB.FilteredElementCollector(doc).OfClass(DB.Viewport).ToElements()
+        for vp in viewports:
+            try:
+                sheet = doc.GetElement(vp.SheetId)
+                sheet_number = sheet.SheetNumber if sheet is not None else ""
+                result[int(vp.ViewId.IntegerValue)] = sheet_number
+            except Exception:
+                pass
+    except Exception:
+        pass
     return result
 
 
@@ -1671,9 +1741,18 @@ def process_plan_view(plan_view, title_block, vertical_offset, horizontal_offset
 
 class SelectableItem(object):
     """A checkbox-bindable wrapper around a plan view name."""
-    def __init__(self, name, checked=False):
+    def __init__(self, name, checked=False, sheet_number="", type_id=None):
         self.Name = name
         self.IsChecked = checked
+        self.SheetNumber = sheet_number  # "" if not placed on any sheet
+        self.TypeId = type_id            # int ViewFamilyType element id, or None
+        # Separate properties for colored rendering in the DataTemplate StackPanel
+        if sheet_number:
+            self.DotText = u"●  "           # teal dot (● + space)
+            self.SheetTag = u"  [{}]".format(sheet_number)  # teal sheet tag
+        else:
+            self.DotText = ""
+            self.SheetTag = ""
 
 
 PREVIEW_XAML = """
@@ -2003,11 +2082,28 @@ FORM_XAML = """
         </StackPanel>
 
         <StackPanel Grid.Row="4">
-            <TextBlock Text="PLAN VIEWS (search, then tick the checkboxes)" Style="{StaticResource SectionLabel}"/>
-            <TextBox x:Name="txt_filter" TextChanged="txt_filter_changed"/>
-            <CheckBox x:Name="chk_show_selected_only" Content="Show only selected views"
-                      Checked="chk_show_selected_only_changed" Unchecked="chk_show_selected_only_changed"
-                      Margin="0,6,0,0"/>
+            <TextBlock Text="PLAN VIEWS" Style="{StaticResource SectionLabel}"/>
+            <!-- View type filter: type keywords then pick from matching types -->
+            <Grid Margin="0,4,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="120"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="txt_type_filter" Grid.Column="0"
+                         TextChanged="txt_type_filter_changed"/>
+                <ComboBox x:Name="cmb_type_filter" Grid.Column="2"
+                          SelectionChanged="cmb_type_filter_selection_changed"/>
+            </Grid>
+            <!-- View name search -->
+            <TextBox x:Name="txt_filter" TextChanged="txt_filter_changed" Margin="0,6,0,0"/>
+            <!-- Checkboxes: show selected / hide placed -->
+            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                <CheckBox x:Name="chk_show_selected_only" Content="Show only selected"
+                          Checked="chk_show_selected_only_changed" Unchecked="chk_show_selected_only_changed"/>
+                <CheckBox x:Name="chk_hide_placed" Content="Hide placed" Margin="16,0,0,0"
+                          Checked="chk_hide_placed_changed" Unchecked="chk_hide_placed_changed"/>
+            </StackPanel>
             <Grid Margin="0,6,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -2019,6 +2115,9 @@ FORM_XAML = """
                 <TextBlock Grid.Column="2" x:Name="txt_selection_count" Foreground="#FF9B9B9B" FontSize="11"
                            HorizontalAlignment="Right" VerticalAlignment="Center" Text="0 view(s) selected"/>
             </Grid>
+            <!-- Placed summary -->
+            <TextBlock x:Name="txt_placed_summary" Foreground="#FF4DB6AC" FontSize="11"
+                       Margin="0,3,0,0" Visibility="Collapsed"/>
         </StackPanel>
 
         <ListBox x:Name="lst_plan_views" Grid.Row="6" Margin="0,4,0,0" MinHeight="240"
@@ -2028,7 +2127,15 @@ FORM_XAML = """
                  PreviewMouseUp="lst_plan_views_mouse_up">
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <CheckBox Content="{Binding Name}" IsChecked="{Binding IsChecked, Mode=TwoWay}"/>
+                    <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}">
+                        <CheckBox.Content>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding DotText}" Foreground="#FF4DB6AC" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding SheetTag}" Foreground="#FF4DB6AC" FontSize="10" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </CheckBox.Content>
+                    </CheckBox>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
@@ -2237,17 +2344,50 @@ class PlaceViewsForm(forms.WPFWindow):
         self.txt_sheet_name.IsEnabled = False
         self.chk_renumber_existing.IsChecked = False
         self.chk_show_selected_only.IsChecked = False
+        self.chk_hide_placed.IsChecked = False
         self.txt_sheet_name.IsEnabled = True
+
+        # Build placed-views dict once (single viewport sweep — fast)
+        self.placed_dict = build_placed_views_dict()
+
+        # Build view type filter data (lightweight — only type elements)
+        self._all_view_types = get_plan_view_type_names()  # [(type_id_int, name), ...]
+        self._filtered_type_items = list(self._all_view_types)
+        self._populate_type_combobox()
 
         # One persistent SelectableItem per plan view - checked state survives
         # filtering since we always reuse these same objects.
         preselected = set(preselected_names or [])
-        self.plan_view_items = [SelectableItem(v.Name, checked=(v.Name in preselected)) for v in plan_views]
+        self.plan_view_items = [
+            SelectableItem(
+                v.Name,
+                checked=(v.Name in preselected),
+                sheet_number=self.placed_dict.get(int(v.Id.IntegerValue), ""),
+                type_id=int(v.GetTypeId().IntegerValue)
+            )
+            for v in plan_views
+        ]
 
         self.refresh_saved_sets_combo()
         self.refresh_plan_views_list()
 
     # -- population helpers --------------------------------------------
+
+    def _populate_type_combobox(self):
+        """Populate the view-type ComboBox from self._filtered_type_items."""
+        names = ["(all types)"] + [name for _, name in self._filtered_type_items]
+        self.cmb_type_filter.ItemsSource = names
+        self.cmb_type_filter.SelectedIndex = 0
+
+    def _selected_type_id(self):
+        """Return the type_id_int of the selected view type, or None for 'all types'."""
+        idx = self.cmb_type_filter.SelectedIndex
+        if idx <= 0 or not self._filtered_type_items:
+            return None
+        try:
+            return self._filtered_type_items[idx - 1][0]
+        except Exception:
+            return None
 
     def refresh_saved_sets_combo(self):
         names = [NONE_SET_LABEL] + sorted(self.saved_sets.keys())
@@ -2255,18 +2395,45 @@ class PlaceViewsForm(forms.WPFWindow):
         self.cmb_saved_sets.SelectedIndex = 0
 
     def refresh_plan_views_list(self, filter_text=""):
+        if not hasattr(self, 'plan_view_items'):
+            return  # guard: called during __init__ before plan_view_items is built
         filter_text = (filter_text or "").lower()
         show_selected_only = bool(self.chk_show_selected_only.IsChecked)
+        hide_placed = bool(self.chk_hide_placed.IsChecked)
+        selected_type_id = self._selected_type_id()
         visible = [
             item for item in self.plan_view_items
-            if filter_text in item.Name.lower() and (not show_selected_only or item.IsChecked)
+            if filter_text in item.Name.lower()
+            and (not show_selected_only or item.IsChecked)
+            and (not hide_placed or not item.SheetNumber)
+            and (selected_type_id is None or item.TypeId == selected_type_id)
         ]
         self.lst_plan_views.ItemsSource = visible
         self.update_selection_count()
 
     def update_selection_count(self):
+        # Selection count spans all items regardless of type filter
         count = sum(1 for item in self.plan_view_items if item.IsChecked)
         self.txt_selection_count.Text = "{} view(s) selected".format(count)
+
+        # Placed/unplaced summary scoped to the current type filter
+        selected_type_id = self._selected_type_id()
+        if selected_type_id is None:
+            scope = self.plan_view_items
+            scope_prefix = u""
+        else:
+            scope = [item for item in self.plan_view_items if item.TypeId == selected_type_id]
+            type_name = next((name for tid, name in self._all_view_types if tid == selected_type_id), "")
+            scope_prefix = u"{} — ".format(type_name) if type_name else u""
+
+        total = len(scope)
+        placed_count = sum(1 for item in scope if item.SheetNumber)
+        if total > 0:
+            self.txt_placed_summary.Text = u"{}{}  views — {} placed, {} unplaced".format(
+                scope_prefix, total, placed_count, total - placed_count)
+            self.txt_placed_summary.Visibility = Visibility.Visible
+        else:
+            self.txt_placed_summary.Visibility = Visibility.Collapsed
 
     def show_error(self, message):
         self.txt_error.Text = message
@@ -2282,6 +2449,24 @@ class PlaceViewsForm(forms.WPFWindow):
         self.refresh_plan_views_list(self.txt_filter.Text)
 
     def chk_show_selected_only_changed(self, sender, args):
+        self.refresh_plan_views_list(self.txt_filter.Text)
+
+    def chk_hide_placed_changed(self, sender, args):
+        self.refresh_plan_views_list(self.txt_filter.Text)
+
+    def txt_type_filter_changed(self, sender, args):
+        """Filter the view type ComboBox to only show types whose name contains the typed text."""
+        search = (self.txt_type_filter.Text or "").lower()
+        if search:
+            self._filtered_type_items = [(tid, name) for tid, name in self._all_view_types
+                                         if search in name.lower()]
+        else:
+            self._filtered_type_items = list(self._all_view_types)
+        self._populate_type_combobox()
+        # After repopulating the combobox, refresh the view list (now all-types selected)
+        self.refresh_plan_views_list(self.txt_filter.Text)
+
+    def cmb_type_filter_selection_changed(self, sender, args):
         self.refresh_plan_views_list(self.txt_filter.Text)
 
     def lst_plan_views_preview_mouse_wheel(self, sender, args):
@@ -2651,9 +2836,15 @@ class PlaceViewsForm(forms.WPFWindow):
                 if v is not None:
                     checked_ids.add(int(v.Id.IntegerValue))
         self.all_plan_views = get_selectable_plan_views()
-        new_id_map = {int(v.Id.IntegerValue): v for v in self.all_plan_views}
+        # Refresh placed dict in case maintenance created/removed viewports
+        self.placed_dict = build_placed_views_dict()
         self.plan_view_items = [
-            SelectableItem(v.Name, checked=(int(v.Id.IntegerValue) in checked_ids))
+            SelectableItem(
+                v.Name,
+                checked=(int(v.Id.IntegerValue) in checked_ids),
+                sheet_number=self.placed_dict.get(int(v.Id.IntegerValue), ""),
+                type_id=int(v.GetTypeId().IntegerValue)
+            )
             for v in self.all_plan_views
         ]
         self.refresh_plan_views_list()

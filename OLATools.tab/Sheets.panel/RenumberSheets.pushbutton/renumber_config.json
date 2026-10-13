@@ -1,0 +1,59 @@
+{
+  "240041_DRH_Block_M-and-N-ARCXX-M3-v2024": {
+    "sheet_filter": "FLOOR- RLS", 
+    "log_folder": "D:\\12 AI Testing\\TESTING", 
+    "t2_param": "OLA Sheet Title 2", 
+    "groups": [
+      {
+        "start": 6001, 
+        "name": "BLOCK M BASEMENT", 
+        "end": 6099
+      }, 
+      {
+        "start": 6101, 
+        "name": "BLOCK M GROUND", 
+        "end": 6199
+      }, 
+      {
+        "start": 6201, 
+        "name": "BLOCK M FIRST", 
+        "end": 6299
+      }, 
+      {
+        "start": 6301, 
+        "name": "BLOCK M SECOND", 
+        "end": 6399
+      }, 
+      {
+        "start": 6401, 
+        "name": "BLOCK N-1 GROUND", 
+        "end": 6499
+      }, 
+      {
+        "start": 6501, 
+        "name": "BLOCK N-2 GROUND", 
+        "end": 6599
+      }, 
+      {
+        "start": 6601, 
+        "name": "BLOCK N-1 FIRST", 
+        "end": 6699
+      }, 
+      {
+        "start": 6701, 
+        "name": "BLOCK N-2 FIRST", 
+        "end": 6799
+      }, 
+      {
+        "start": 6801, 
+        "name": "BLOCK N-1 SECOND", 
+        "end": 6899
+      }, 
+      {
+        "start": 6901, 
+        "name": "BLOCK N-2 SECOND", 
+        "end": 6999
+      }
+    ]
+  }
+}
