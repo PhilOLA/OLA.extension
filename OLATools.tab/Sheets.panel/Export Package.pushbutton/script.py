@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.2
+Export & Publish v3.5.3
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -555,7 +555,15 @@ def _build_pdf_options(settings):
             if pp["black_white"] else ColorDepthType.Color
     except Exception: pass
     try:
-        opts.RasterQuality = RasterQualityType.High
+        _rq_map = {
+            "Draft":        RasterQualityType.Draft,
+            "Low":          RasterQualityType.Low,
+            "Medium":       RasterQualityType.Medium,
+            "High":         RasterQualityType.High,
+            "Presentation": RasterQualityType.Presentation,
+        }
+        opts.RasterQuality = _rq_map.get(
+            settings.get("raster_quality", "Medium"), RasterQualityType.Medium)
     except Exception: pass
     try:
         opts.PageOrientation = PageOrientationType.Landscape \
@@ -702,7 +710,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.2 - Log",
+        u"Export & Publish v3.5.3 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -741,7 +749,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.5.2"
+    Title="Export &amp; Publish — v3.5.3"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -991,7 +999,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.5.2" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.3" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
@@ -1531,7 +1539,18 @@ XAML = u"""
                       <TextBlock Text="PDF ENGINE" Style="{StaticResource SectionLabel}"/>
                       <Separator Style="{StaticResource Divider}"/>
                       <TextBlock Text="PDF engine: Native (Revit Export)"
-                                 FontSize="10" Foreground="#4DB6AC" Margin="0,2,0,6"/>
+                                 FontSize="10" Foreground="#4DB6AC" Margin="0,2,0,4"/>
+                      <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="Auto"/>
+                          <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Raster quality:"
+                                   FontSize="11" Foreground="#CCCCCC"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="CboRasterQuality" Grid.Column="1"
+                                  FontSize="11"/>
+                      </Grid>
 
                       <TextBlock Text="PRINT SETUP" Style="{StaticResource SectionLabel}"/>
                       <Separator Style="{StaticResource Divider}"/>
@@ -1928,6 +1947,7 @@ class ExportDialog(object):
         self.cbo_print_setup      = _("CboPrintSetup")
         self.chk_open_folder      = _("ChkOpenFolder")
         self.chk_overwrite        = _("ChkOverwritePrompt")
+        self.cbo_raster_quality   = _("CboRasterQuality")
 
         # Variable per-sheet print setup
         self.pnl_variable_assign  = _("PnlVariableAssign")
@@ -1989,6 +2009,14 @@ class ExportDialog(object):
                          if n == last_ps), 1)   # default to "(Use defaults)"
         self.cbo_print_setup.SelectedIndex = ps_idx
         self.exp_print_settings.IsExpanded = cfg.get("last_print_expanded", False)
+
+        # Raster quality dropdown
+        _rq_options = ["Draft", "Low", "Medium", "High", "Presentation"]
+        for opt in _rq_options:
+            self.cbo_raster_quality.Items.Add(opt)
+        last_rq = cfg.get("last_raster_quality", "Medium")
+        self.cbo_raster_quality.SelectedIndex = \
+            _rq_options.index(last_rq) if last_rq in _rq_options else 2
 
         # Print sets
         for name, _ in self.print_sets:
@@ -3223,6 +3251,7 @@ ACCDocs not found"
             "dwg_setup_name":   dwg_setup_name,
             "open_folder":      bool(self.chk_open_folder.IsChecked),
             "overwrite_prompt": bool(self.chk_overwrite.IsChecked),
+            "raster_quality":   str(self.cbo_raster_quality.SelectedItem or "Medium"),
         }
 
     def _collect_variable_setups(self):
@@ -3417,6 +3446,7 @@ ACCDocs not found"
         cfg["pdf_engine"]           = settings["pdf_engine"]
         cfg["last_acc_overwrite"]   = settings["acc_overwrite"]
         cfg["last_print_expanded"]  = bool(self.exp_print_settings.IsExpanded)
+        cfg["last_raster_quality"]  = settings.get("raster_quality", "Medium")
         if settings.get("dwg_setup_name"):
             cfg["last_dwg_setup"] = settings["dwg_setup_name"]
 
