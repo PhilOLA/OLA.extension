@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.0
+Export & Publish v3.5.1
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -644,7 +644,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.0 - Log",
+        u"Export & Publish v3.5.1 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -683,7 +683,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.5.0"
+    Title="Export &amp; Publish — v3.5.1"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -933,7 +933,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.5.0" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.1" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
@@ -2264,8 +2264,9 @@ ACCDocs not found"
                 pass
             return False
 
-        def _add_row(sh, included=True):
-            size = get_sheet_size(sh)
+        def _add_row(sh, included=True, size=None):
+            if size is None:
+                size = get_sheet_size(sh)
             row = dt.NewRow()
             row["Included"]   = included
             row["SheetNo"]    = sh.SheetNumber
@@ -2296,7 +2297,7 @@ ACCDocs not found"
                 key=lambda s: s.SheetNumber
             )
             for sh in sheets:
-                _add_row(sh)
+                _add_row(sh, size=u"—")
             self._sheets = sheets
 
         elif is_active:
