@@ -45,7 +45,7 @@ LAST_SHEET_NAME_KEY = "last_sheet_name"
 LAST_PLAN_TEMPLATE_KEY = "last_plan_template_name"
 LAST_ELEV_TEMPLATE_KEY = "last_elev_template_name"
 
-TOOL_VERSION = "1.0.12"
+TOOL_VERSION = "1.0.13"
 
 # ---- DEFAULTS (shown pre-filled in the dialog, editable there) ----
 GAP = 0.05  # feet between viewports in the grid (~0.6")
@@ -2211,7 +2211,7 @@ FORM_XAML = """
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <Button x:Name="btn_select_placed" Grid.Column="0" Click="btn_select_placed_click" Style="{StaticResource SmallButton}">
-                    <TextBlock Text="Select Placed (visible)" Foreground="#FF4DB6AC"/>
+                    <TextBlock Text="Select Placed" Foreground="#FF4DB6AC"/>
                 </Button>
                 <Button x:Name="btn_unselect_all" Grid.Column="1" Content="Unselect All" Click="btn_unselect_all_click" Style="{StaticResource SmallButton}"/>
             </Grid>
@@ -2830,16 +2830,31 @@ class PlaceViewsForm(forms.WPFWindow):
         self.refresh_plan_views_list(self.txt_filter.Text)
 
     def btn_select_placed_click(self, sender, args):
-        """Tick every VISIBLE item that is already on a sheet.
+        """Tick already-placed views, scoped to the active saved set if one is
+        loaded, otherwise to the currently visible (filtered) list.
 
-        Operates on the currently visible (filtered) list — the same scope as
-        'Select All (visible)' — so loading a print set then enabling
-        'Show only selected' before clicking here will tick only the already-
-        placed views within that set, not every placed view in the project.
+        When a saved set is loaded the button scopes automatically — no need
+        to turn on 'Show only selected' first.  Without a saved set it falls
+        back to visible items so text / type filters are still respected.
         """
-        for item in list(self.lst_plan_views.ItemsSource):
-            if item.SheetNumber:
-                item.IsChecked = True
+        active_set = self.cmb_saved_sets.SelectedItem
+        if active_set and active_set != NONE_SET_LABEL:
+            # Resolve the saved set's view names so we know the scope
+            set_entries = self.saved_sets.get(active_set, [])
+            set_names = set()
+            for e in set_entries:
+                try:
+                    set_names.add(e.get("name", "") if isinstance(e, dict) else e)
+                except Exception:
+                    pass
+            for item in self.plan_view_items:
+                if item.Name in set_names and item.SheetNumber:
+                    item.IsChecked = True
+        else:
+            # No saved set active — respect current visible list
+            for item in list(self.lst_plan_views.ItemsSource):
+                if item.SheetNumber:
+                    item.IsChecked = True
         self.refresh_plan_views_list(self.txt_filter.Text)
 
     def btn_unselect_all_click(self, sender, args):
