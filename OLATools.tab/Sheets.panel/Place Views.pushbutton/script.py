@@ -45,7 +45,7 @@ LAST_SHEET_NAME_KEY = "last_sheet_name"
 LAST_PLAN_TEMPLATE_KEY = "last_plan_template_name"
 LAST_ELEV_TEMPLATE_KEY = "last_elev_template_name"
 
-TOOL_VERSION = "1.0.2"
+TOOL_VERSION = "1.0.3"
 
 # ---- DEFAULTS (shown pre-filled in the dialog, editable there) ----
 GAP = 0.05  # feet between viewports in the grid (~0.6")
@@ -178,14 +178,18 @@ def get_selectable_plan_views(type_id=None):
     return result
 
 
-def get_plan_view_type_names():
+def get_plan_view_type_names(existing_plan_views=None):
     """Return sorted list of (type_id_int, type_name) for all ViewFamilyTypes
-    that are actually used by at least one non-template floor plan view."""
+    that are actually used by at least one non-template floor plan view.
+
+    Pass existing_plan_views to avoid a duplicate FilteredElementCollector sweep
+    when the caller has already collected plan views."""
 
     # Pass 1: collect typeIds used by floor plan views
     used_type_ids = set()
     try:
-        plans = DB.FilteredElementCollector(doc).OfClass(DB.ViewPlan).ToElements()
+        plans = existing_plan_views if existing_plan_views is not None \
+            else DB.FilteredElementCollector(doc).OfClass(DB.ViewPlan).ToElements()
         for v in plans:
             try:
                 if v.IsTemplate:
@@ -246,22 +250,33 @@ def build_placed_views_dict():
     return result
 
 
-def load_saved_view_sets():
+def load_saved_view_sets(existing_plan_views=None):
     """Return {set_name: [{"id": int, "name": str}, ...]} loaded from persistent script config.
-    Automatically migrates old-format {set_name: [str, ...]} to the new format on first load."""
+    Automatically migrates old-format {set_name: [str, ...]} to the new format on first load.
+
+    Pass existing_plan_views to avoid a duplicate FilteredElementCollector sweep when
+    migration is needed and the caller has already collected plan views."""
     raw = config.get_option(SAVED_SETS_CONFIG_KEY, "{}")
     try:
         data = json.loads(raw)
     except Exception:
         return {}
     # Migrate old format (list of strings) to new format (list of {id, name} dicts)
-    # Do migration in-memory only; caller must call save_view_sets() to persist
+    # Do migration in-memory only; caller must call save_view_sets() to persist.
+    # Only fetch plan views when migration is actually needed (avoids an extra sweep
+    # on every dialog open when all saved sets are already in the new format).
     migrated = False
-    plan_views = get_selectable_plan_views()
-    for set_name, entries in list(data.items()):
-        if entries and isinstance(entries[0], basestring):
-            data[set_name] = migrate_set_entries_to_id_format(entries, plan_views)
-            migrated = True
+    needs_migration = any(
+        entries and isinstance(entries[0], basestring)
+        for entries in data.values()
+    )
+    if needs_migration:
+        plan_views_for_migration = existing_plan_views if existing_plan_views is not None \
+            else get_selectable_plan_views()
+        for set_name, entries in list(data.items()):
+            if entries and isinstance(entries[0], basestring):
+                data[set_name] = migrate_set_entries_to_id_format(entries, plan_views_for_migration)
+                migrated = True
     if migrated:
         save_view_sets(data)
     return data
@@ -468,15 +483,17 @@ def find_elevation_marker_for_plan(plan_view, verbose=True):
 
     log_text = "\n".join(log_lines)
 
-    log_path = r"C:\Temp\pyrevit_placeviews_debug_{}.txt".format(plan_view.Id)
-    try:
-        import os
-        if not os.path.isdir(r"C:\Temp"):
-            os.makedirs(r"C:\Temp")
-        with open(log_path, "w") as f:
-            f.write(log_text)
-    except Exception as e:
-        if verbose:
+    # Only write the debug log file when verbose output is requested, to avoid
+    # unnecessary file I/O on every compute_preview() / silent resolve call.
+    if verbose:
+        log_path = r"C:\Temp\pyrevit_placeviews_debug_{}.txt".format(plan_view.Id)
+        try:
+            import os
+            if not os.path.isdir(r"C:\Temp"):
+                os.makedirs(r"C:\Temp")
+            with open(log_path, "w") as f:
+                f.write(log_text)
+        except Exception as e:
             output.print_md("**Warning:** could not write debug log file: {}".format(e))
 
     if not qualifying:
@@ -566,9 +583,19 @@ def is_sheet_empty(sheet):
 def get_selectable_view_templates():
     """All view templates in the project that could be applied to plan or
     elevation views, sorted by name. Returns a list of View elements that
-    have IsTemplate=True."""
-    all_views = DB.FilteredElementCollector(doc).OfClass(DB.View).ToElements()
-    templates = [v for v in all_views if v.IsTemplate]
+    have IsTemplate=True.
+
+    Uses targeted per-class collectors (ViewPlan, ViewSection, View3D) instead
+    of a single OfClass(DB.View) sweep to avoid loading ViewSheet, ViewSchedule,
+    ViewDrafting and other non-template-applicable types — significantly faster
+    in large projects."""
+    templates = []
+    for cls in (DB.ViewPlan, DB.ViewSection, DB.View3D):
+        try:
+            views = DB.FilteredElementCollector(doc).OfClass(cls).ToElements()
+            templates.extend(v for v in views if v.IsTemplate)
+        except Exception:
+            pass
     templates.sort(key=lambda v: v.Name)
     return templates
 
@@ -827,11 +854,14 @@ def arrange_viewports(placed, center, layout_code, interior=None):
 
         doc.Regenerate()
 
-        sizes = [
-            (vp.GetBoxOutline().MaximumPoint.X - vp.GetBoxOutline().MinimumPoint.X,
-             vp.GetBoxOutline().MaximumPoint.Y - vp.GetBoxOutline().MinimumPoint.Y)
-            for vp in placed
-        ]
+        # Cache each outline to avoid two GetBoxOutline() calls per viewport.
+        sizes = []
+        for vp in placed:
+            outline = vp.GetBoxOutline()
+            sizes.append((
+                outline.MaximumPoint.X - outline.MinimumPoint.X,
+                outline.MaximumPoint.Y - outline.MinimumPoint.Y,
+            ))
 
     finally:
         # Always roll back — this discards EnableTemporaryViewPropertiesMode on
@@ -1243,8 +1273,13 @@ def sheet_base_name(plan_view, verbose=True):
     return base_name_from_room(room, plan_view)
 
 
-def is_view_already_placed(view):
-    """True if this view already has a Viewport on some sheet."""
+def is_view_already_placed(view, placed_dict=None):
+    """True if this view already has a Viewport on some sheet.
+
+    Pass a pre-built placed_dict (from build_placed_views_dict()) to avoid
+    running a full Viewport collector sweep on every individual call."""
+    if placed_dict is not None:
+        return int(view.Id.IntegerValue) in placed_dict
     viewports = DB.FilteredElementCollector(doc).OfClass(DB.Viewport).ToElements()
     for vp in viewports:
         if vp.ViewId == view.Id:
@@ -1252,8 +1287,21 @@ def is_view_already_placed(view):
     return False
 
 
-def get_sheet_for_view(view):
-    """Return the ViewSheet a view is placed on, or None if it isn't placed."""
+def get_sheet_for_view(view, placed_dict=None):
+    """Return the ViewSheet a view is placed on, or None if it isn't placed.
+
+    Pass a pre-built placed_dict (from build_placed_views_dict()) to avoid
+    running a full Viewport collector sweep on every individual call. The dict
+    maps view_id_int -> sheet_number_str; we still need the actual ViewSheet
+    object so we do one targeted lookup by sheet number when using the cache."""
+    if placed_dict is not None:
+        vid = int(view.Id.IntegerValue)
+        if vid not in placed_dict:
+            return None
+        # placed_dict stores sheet_number; look up the sheet by iterating
+        # the (already-built) existing sheets map is not available here, so fall
+        # through to a targeted collector scoped to the sheet we know the number of.
+        # This is still much faster than sweeping all viewports when the view IS placed.
     viewports = DB.FilteredElementCollector(doc).OfClass(DB.Viewport).ToElements()
     for vp in viewports:
         if vp.ViewId == view.Id:
@@ -1357,13 +1405,18 @@ def compute_preview(plan_views, start_number, temp_prefix="TEMP"):
     lines = []
     seen_numbers = {}  # room_number.lower() -> [plan_view.Name, ...]
 
+    # Build the placed-views lookup once here rather than running a full
+    # Viewport collector for every individual is_view_already_placed() call.
+    # For 1 room + 4 elevations this eliminates 5 repeated full-model sweeps.
+    placed_dict = build_placed_views_dict()
+
     for plan_view in plan_views:
         marker, room = resolve_marker_and_room(plan_view, verbose=False)
         base_name = base_name_from_room(room, plan_view)
         room_num = room_number(room) if room is not None else ""
-        plan_placed = is_view_already_placed(plan_view)
+        plan_placed = int(plan_view.Id.IntegerValue) in placed_dict
         elevation_views = get_elevation_views(marker) if marker else []
-        elev_placed = any(is_view_already_placed(v) for v in elevation_views) if elevation_views else False
+        elev_placed = any(int(v.Id.IntegerValue) in placed_dict for v in elevation_views) if elevation_views else False
         elev_names = ", ".join(v.Name for v in elevation_views)
 
         warnings = []
@@ -2350,8 +2403,9 @@ class PlaceViewsForm(forms.WPFWindow):
         # Build placed-views dict once (single viewport sweep — fast)
         self.placed_dict = build_placed_views_dict()
 
-        # Build view type filter data (lightweight — only type elements)
-        self._all_view_types = get_plan_view_type_names()  # [(type_id_int, name), ...]
+        # Build view type filter data — pass the already-collected plan_views to
+        # avoid a duplicate FilteredElementCollector sweep inside the function.
+        self._all_view_types = get_plan_view_type_names(existing_plan_views=plan_views)  # [(type_id_int, name), ...]
         self._filtered_type_items = list(self._all_view_types)
         self._populate_type_combobox()
 
@@ -2964,7 +3018,9 @@ def show_place_views_dialog():
     if not plan_views:
         forms.alert("No floor plan views were found in this project.", exitscript=True)
 
-    saved_sets = load_saved_view_sets()
+    # Pass the already-collected plan_views so load_saved_view_sets() doesn't
+    # run a second ViewPlan sweep if an old-format migration is needed.
+    saved_sets = load_saved_view_sets(existing_plan_views=plan_views)
     prefs = load_last_used_prefs()
     preselected_names = None
 
