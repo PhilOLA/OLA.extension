@@ -2,8 +2,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="Elevation Crop Fixer"
-    Height="950" Width="780"
-    MinHeight="640" MinWidth="700"
+    Height="1280" Width="780"
+    MinHeight="800" MinWidth="700"
     WindowStartupLocation="CenterScreen"
     ResizeMode="CanResizeWithGrip"
     Background="#FF2B2B2B">
@@ -44,9 +44,9 @@
 
     <Grid Margin="10">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="2*"/>
+            <ColumnDefinition Width="1.5*"/>
             <ColumnDefinition Width="10"/>
-            <ColumnDefinition Width="1*"/>
+            <ColumnDefinition Width="1.5*"/>
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -116,16 +116,12 @@
 
             <Separator Margin="2,14,2,10"/>
             <TextBlock Text="ELEVATION VIEW TEMPLATE" FontWeight="Bold" Foreground="#FF4FC3F7"/>
-            <TextBox x:Name="tbTemplateFilter" Margin="2,4,2,4"/>
-            <TextBlock Text="(type to filter, then pick below)" Foreground="Gray" FontSize="11" Margin="2,0,2,4"/>
-            <ComboBox x:Name="cbElevTemplate" Margin="2,0,2,4"/>
+            <ComboBox x:Name="cbElevTemplate" Margin="2,4,2,4" IsTextSearchEnabled="True"/>
             <CheckBox x:Name="chkOverrideTemplate" Content="Override views that already have a template" Margin="2,2,2,2"/>
 
             <Separator Margin="2,14,2,10"/>
             <TextBlock Text="ROOM TAG TYPE" FontWeight="Bold" Foreground="#FF4FC3F7"/>
-            <TextBox x:Name="tbRoomTagFilter" Margin="2,4,2,4"/>
-            <TextBlock Text="(type to filter, then pick below)" Foreground="Gray" FontSize="11" Margin="2,0,2,4"/>
-            <ComboBox x:Name="cbRoomTagType" Margin="2,0,2,4"/>
+            <ComboBox x:Name="cbRoomTagType" Margin="2,4,2,4" IsTextSearchEnabled="True"/>
             <TextBlock Text="Centred left-right on crop, 1/4 down from ceiling" Foreground="Gray" FontSize="11" TextWrapping="Wrap" Margin="2,0,2,2"/>
 
             <Separator Margin="2,14,2,10"/>

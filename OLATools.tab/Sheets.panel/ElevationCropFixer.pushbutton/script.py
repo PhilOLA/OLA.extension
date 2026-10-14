@@ -105,7 +105,7 @@ logger = script.get_logger()
 
 XAML_PATH = os.path.join(os.path.dirname(__file__), "ui.xaml")
 
-TOOL_VERSION = "1.7.1"
+TOOL_VERSION = "1.7.2"
 
 # ---------------------------------------------------------------------------
 # Extensible storage - marks a view we have adjusted, so a later run can
@@ -1101,19 +1101,17 @@ def fix_grid(grid, view, crop_transform, target_bottom_offset, target_top_offset
 
 
 def get_elevation_view_templates():
-    """Every view template in the model, sorted with Elevation-type
-    templates first (most likely to be relevant here), then everything
-    else alphabetically - for the "Elevation view template" dropdown.
-    We don't filter down to ViewType.Elevation only any more: some
-    offices' "elevation" templates are saved under a different ViewType,
-    and hiding them was why templates were going missing from the list -
-    the dropdown's new filter box is there to make the fuller list easy
-    to search instead."""
+    """View templates whose ViewType is Elevation, sorted alphabetically,
+    for the "Elevation view template" dropdown.  Only Elevation-type
+    templates are shown - other ViewType templates are not applicable to
+    elevation views and would just clutter the list."""
     views = FilteredElementCollector(doc).OfClass(View).WhereElementIsNotElementType().ToElements()
     items = []
     for v in views:
         try:
             if not v.IsTemplate:
+                continue
+            if v.ViewType != ViewType.Elevation:
                 continue
         except Exception:
             continue
@@ -1121,13 +1119,9 @@ def get_elevation_view_templates():
             name = v.Name
         except Exception:
             name = ""
-        try:
-            is_elevation = v.ViewType == ViewType.Elevation
-        except Exception:
-            is_elevation = False
-        items.append((not is_elevation, name, v))
-    items.sort(key=lambda t: (t[0], t[1]))
-    return [t[2] for t in items]
+        items.append((name, v))
+    items.sort(key=lambda t: t[0])
+    return [t[1] for t in items]
 
 
 def apply_view_template(view, template_id, override):
@@ -2554,8 +2548,6 @@ class CropFixerWindow(forms.WPFWindow):
         self.tbSearch.TextChanged += self.on_search_changed
         self.btnAll.Click += self.on_select_all
         self.btnNone.Click += self.on_select_none
-        self.tbTemplateFilter.TextChanged += self.on_template_filter_changed
-        self.tbRoomTagFilter.TextChanged += self.on_room_tag_filter_changed
         self.btnRun.Click += self.on_run
         self.btnClose.Click += self.on_close
         self.Closing += self.on_closing
@@ -2570,37 +2562,22 @@ class CropFixerWindow(forms.WPFWindow):
     @staticmethod
     def template_display_name(tmpl):
         try:
-            name = tmpl.Name
+            return tmpl.Name
         except Exception:
             try:
-                name = "Template {}".format(tmpl.Id)
+                return "Template {}".format(tmpl.Id)
             except Exception:
                 return "(unreadable template)"
-        try:
-            is_elevation = tmpl.ViewType == ViewType.Elevation
-        except Exception:
-            is_elevation = True
-        if is_elevation:
-            return name
-        try:
-            return "{} [{}]".format(name, tmpl.ViewType)
-        except Exception:
-            return name
 
     def load_templates(self):
-        """Caches every view template in the model (see
-        get_elevation_view_templates), then builds the dropdown from
-        that cache - apply_template_filter() rebuilds the dropdown's
-        items whenever the filter box changes, without re-querying
-        Revit each time."""
+        """Collects Elevation-type view templates and populates the
+        dropdown. IsTextSearchEnabled on the ComboBox lets the user
+        jump to a template by typing while the dropdown is open."""
         self.all_templates = get_elevation_view_templates()
-        self.apply_template_filter()
+        self.populate_template_dropdown()
 
-    def apply_template_filter(self):
+    def populate_template_dropdown(self, previously_selected=None):
         from System.Windows.Controls import ComboBoxItem
-
-        term = (self.tbTemplateFilter.Text or "").strip().lower()
-        previously_selected = self.selected_template_id()
 
         self.cbElevTemplate.Items.Clear()
         none_item = ComboBoxItem()
@@ -2611,8 +2588,6 @@ class CropFixerWindow(forms.WPFWindow):
         select_item = none_item
         for tmpl in self.all_templates:
             display = self.template_display_name(tmpl)
-            if term and term not in display.lower():
-                continue
             item = ComboBoxItem()
             item.Content = display
             item.Tag = tmpl.Id
@@ -2620,9 +2595,6 @@ class CropFixerWindow(forms.WPFWindow):
             if previously_selected is not None and tmpl.Id == previously_selected:
                 select_item = item
         self.cbElevTemplate.SelectedItem = select_item
-
-    def on_template_filter_changed(self, sender, args):
-        self.apply_template_filter()
 
     @staticmethod
     def room_tag_display_name(symbol):
@@ -2653,13 +2625,10 @@ class CropFixerWindow(forms.WPFWindow):
 
     def load_room_tag_types(self):
         self.all_room_tag_types = get_room_tag_types()
-        self.apply_room_tag_filter()
+        self.populate_room_tag_dropdown()
 
-    def apply_room_tag_filter(self):
+    def populate_room_tag_dropdown(self, previously_selected=None):
         from System.Windows.Controls import ComboBoxItem
-
-        term = (self.tbRoomTagFilter.Text or "").strip().lower()
-        previously_selected = self.selected_room_tag_type_id()
 
         self.cbRoomTagType.Items.Clear()
         none_item = ComboBoxItem()
@@ -2670,8 +2639,6 @@ class CropFixerWindow(forms.WPFWindow):
         select_item = none_item
         for symbol in self.all_room_tag_types:
             display = self.room_tag_display_name(symbol)
-            if term and term not in display.lower():
-                continue
             item = ComboBoxItem()
             item.Content = display
             item.Tag = symbol.Id
@@ -2679,9 +2646,6 @@ class CropFixerWindow(forms.WPFWindow):
             if previously_selected is not None and symbol.Id == previously_selected:
                 select_item = item
         self.cbRoomTagType.SelectedItem = select_item
-
-    def on_room_tag_filter_changed(self, sender, args):
-        self.apply_room_tag_filter()
 
     def selected_template_id(self):
         item = self.cbElevTemplate.SelectedItem
