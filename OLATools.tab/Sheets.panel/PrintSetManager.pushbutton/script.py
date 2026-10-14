@@ -297,8 +297,8 @@ def save_print_set(name, sheet_elements, existing_id=None):
     Create or overwrite a ViewSheetSet via PrintManager.
     Returns (success, message).
     """
+    __revit__.DialogBoxShowing += _suppress_dialog
     try:
-        __revit__.DialogBoxShowing += _suppress_dialog
         pm = doc.PrintManager
         pm.PrintRange = PrintRange.Select
         vss = pm.ViewSheetSetting
@@ -308,23 +308,22 @@ def save_print_set(name, sheet_elements, existing_id=None):
         for s in sheet_elements:
             vs.Insert(s)
 
-        try:
-            with Transaction(doc, "Print Set Manager — Save Set") as t:
-                t.Start()
-                if existing_id is not None:
-                    existing = doc.GetElement(existing_id)
-                    if existing:
-                        vss.CurrentViewSheetSet = existing
-                        vss.Delete()
-                vss.SaveAs(name)
-                vss.CurrentViewSheetSet.Views = vs
-                vss.Save()
-                t.Commit()
-            return True, "Set '{}' saved — {} sheets".format(name, len(sheet_elements))
-        except Exception as ex:
-            return False, "Error saving set: {}".format(str(ex))
-        finally:
-            __revit__.DialogBoxShowing -= _suppress_dialog
+        with Transaction(doc, "Print Set Manager — Save Set") as t:
+            t.Start()
+            if existing_id is not None:
+                existing = doc.GetElement(existing_id)
+                if existing:
+                    vss.CurrentViewSheetSet = existing
+                    vss.Delete()
+            vss.SaveAs(name)
+            vss.CurrentViewSheetSet.Views = vs
+            vss.Save()
+            t.Commit()
+        return True, "Set '{}' saved — {} sheets".format(name, len(sheet_elements))
+    except Exception as ex:
+        return False, "Error saving set: {}".format(str(ex))
+    finally:
+        __revit__.DialogBoxShowing -= _suppress_dialog
 
 
 def delete_print_set(element_id):
