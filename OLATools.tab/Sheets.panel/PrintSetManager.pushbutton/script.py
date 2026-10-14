@@ -17,7 +17,7 @@ clr.AddReference("System.Collections")
 
 from Autodesk.Revit.DB import (
     FilteredElementCollector, FamilyInstance, ViewSheetSet,
-    ViewSheet, ScheduleSheetInstance, PrintManager,
+    ViewSheet, ScheduleSheetInstance, PrintManager, PrintRange,
     BuiltInParameter, XYZ, Transaction, ViewSet
 )
 from Autodesk.Revit.DB.Architecture import Room
@@ -291,7 +291,7 @@ def save_print_set(name, sheet_elements, existing_id=None):
     """
     try:
         pm = doc.PrintManager
-        pm.PrintRange = Autodesk.Revit.DB.PrintRange.Select
+        pm.PrintRange = PrintRange.Select
         vss = pm.ViewSheetSetting
 
         # Build a ViewSet
