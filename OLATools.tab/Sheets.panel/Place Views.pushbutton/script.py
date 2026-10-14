@@ -45,7 +45,7 @@ LAST_SHEET_NAME_KEY = "last_sheet_name"
 LAST_PLAN_TEMPLATE_KEY = "last_plan_template_name"
 LAST_ELEV_TEMPLATE_KEY = "last_elev_template_name"
 
-TOOL_VERSION = "1.0.4"
+TOOL_VERSION = "1.0.5"
 
 # ---- DEFAULTS (shown pre-filled in the dialog, editable there) ----
 GAP = 0.05  # feet between viewports in the grid (~0.6")
@@ -375,7 +375,15 @@ def save_last_used_prefs(prefs):
     """Persist a dict of dialog values (same keys as load_last_used_prefs)."""
     for name, key, default, is_int in PREF_FIELDS:
         if name in prefs:
-            config.set_option(key, str(prefs[name]))
+            value = prefs[name]
+            # IronPython str() on a unicode string that contains non-ASCII
+            # characters raises UnicodeEncodeError. Use u"{}".format() to
+            # keep the value as unicode throughout, which config.set_option
+            # handles correctly.
+            try:
+                config.set_option(key, u"{}".format(value))
+            except Exception:
+                config.set_option(key, repr(value))
     script.save_config()
 
 
@@ -2368,8 +2376,12 @@ class PlaceViewsForm(forms.WPFWindow):
         # ── Cheap / immediate setup (no Revit collectors) ─────────────────
         title_block_names = [title_block_display_name(tb) for tb in title_blocks]
         self.cmb_title_block.ItemsSource = title_block_names
-        if prefs.get("title_block_name") in title_block_names:
-            self.cmb_title_block.SelectedIndex = title_block_names.index(prefs["title_block_name"])
+        # Strip both sides so trailing whitespace in a stored or computed name
+        # doesn't prevent a match.
+        pref_tb_name = (prefs.get("title_block_name") or "").strip()
+        stripped_tb_names = [n.strip() for n in title_block_names]
+        if pref_tb_name and pref_tb_name in stripped_tb_names:
+            self.cmb_title_block.SelectedIndex = stripped_tb_names.index(pref_tb_name)
         elif title_blocks:
             self.cmb_title_block.SelectedIndex = 0
 
@@ -2421,50 +2433,100 @@ class PlaceViewsForm(forms.WPFWindow):
         """Run all expensive FilteredElementCollector calls AFTER the window is
         visible. The user sees the dialog immediately; this fills in the
         remaining data (viewport types, view templates, placed-view state,
-        plan view list, sheet-number check) while the window is open."""
+        plan view list, sheet-number check) while the window is open.
+
+        Each loading step is wrapped individually so a failure in one step
+        does not prevent the others from completing. The Place Views button
+        is enabled at the end regardless of partial failures.
+        """
+        # Unwire immediately — ContentRendered can fire more than once on
+        # some WPF hosts (e.g. after a resize). Re-firing would reset the
+        # user's dropdown selections back to the saved defaults.
+        self.ContentRendered -= self._on_content_rendered
+
+        errors = []
+
+        # ------------------------------------------------------------------
+        # 1. Viewport types
+        # ------------------------------------------------------------------
         try:
             self.txt_loading_status.Text = "Loading viewport types…"
-
-            # 1. Viewport types
             self.viewport_types = get_selectable_viewport_types()
             viewport_type_names = [viewport_type_display_name(t) for t in self.viewport_types]
             self.cmb_viewport_type.ItemsSource = ["(default)"] + viewport_type_names
-            pref_vp_name = self.prefs.get("viewport_type_name", "")
-            if pref_vp_name and pref_vp_name in viewport_type_names:
-                self.cmb_viewport_type.SelectedIndex = viewport_type_names.index(pref_vp_name) + 1
+
+            # Strip both sides to guard against trailing-space differences
+            # between the freshly-computed name and the stored preference.
+            pref_vp_name = (self.prefs.get("viewport_type_name", "") or "").strip()
+            stripped_vp_names = [n.strip() for n in viewport_type_names]
+            if pref_vp_name and pref_vp_name in stripped_vp_names:
+                self.cmb_viewport_type.SelectedIndex = stripped_vp_names.index(pref_vp_name) + 1
             elif self.viewport_types:
                 self.cmb_viewport_type.SelectedIndex = default_viewport_type_index(self.viewport_types) + 1
             else:
                 self.cmb_viewport_type.SelectedIndex = 0
+        except Exception as ex:
+            errors.append("viewport types: {}".format(ex))
+            self.cmb_viewport_type.ItemsSource = ["(unavailable)"]
+            self.cmb_viewport_type.SelectedIndex = 0
 
+        # ------------------------------------------------------------------
+        # 2. View templates
+        # ------------------------------------------------------------------
+        try:
             self.txt_loading_status.Text = "Loading view templates…"
-
-            # 2. View templates
             self.view_templates = get_selectable_view_templates()
             template_names = ["(none)"] + [t.Name for t in self.view_templates]
+            stripped_tmpl_names = [n.strip() for n in template_names]
             self.cmb_plan_template.ItemsSource = template_names
             self.cmb_elev_template.ItemsSource = template_names
-            pref_plan_tmpl = self.prefs.get("plan_template_name", "")
-            pref_elev_tmpl = self.prefs.get("elev_template_name", "")
-            self.cmb_plan_template.SelectedIndex = (template_names.index(pref_plan_tmpl)
-                                                     if pref_plan_tmpl in template_names else 0)
-            self.cmb_elev_template.SelectedIndex = (template_names.index(pref_elev_tmpl)
-                                                     if pref_elev_tmpl in template_names else 0)
 
+            pref_plan_tmpl = (self.prefs.get("plan_template_name", "") or "").strip()
+            pref_elev_tmpl = (self.prefs.get("elev_template_name", "") or "").strip()
+            self.cmb_plan_template.SelectedIndex = (
+                stripped_tmpl_names.index(pref_plan_tmpl)
+                if pref_plan_tmpl in stripped_tmpl_names else 0
+            )
+            self.cmb_elev_template.SelectedIndex = (
+                stripped_tmpl_names.index(pref_elev_tmpl)
+                if pref_elev_tmpl in stripped_tmpl_names else 0
+            )
+        except Exception as ex:
+            errors.append("view templates: {}".format(ex))
+            self.cmb_plan_template.ItemsSource = ["(unavailable)"]
+            self.cmb_plan_template.SelectedIndex = 0
+            self.cmb_elev_template.ItemsSource = ["(unavailable)"]
+            self.cmb_elev_template.SelectedIndex = 0
+
+        # ------------------------------------------------------------------
+        # 3. Placed-views dict (single Viewport sweep)
+        # ------------------------------------------------------------------
+        try:
             self.txt_loading_status.Text = "Checking placed views…"
-
-            # 3. Placed-views dict (single Viewport sweep)
             self.placed_dict = build_placed_views_dict()
+        except Exception as ex:
+            errors.append("placed views: {}".format(ex))
+            self.placed_dict = {}
 
+        # ------------------------------------------------------------------
+        # 4. View type filter data
+        # ------------------------------------------------------------------
+        try:
             self.txt_loading_status.Text = "Building plan view list…"
-
-            # 4. View type filter data
             plan_views = self.all_plan_views
             self._all_view_types = get_plan_view_type_names(existing_plan_views=plan_views)
             self._filtered_type_items = list(self._all_view_types)
             self._populate_type_combobox()
+        except Exception as ex:
+            errors.append("view type filter: {}".format(ex))
+            self.cmb_type_filter.ItemsSource = ["(all types)"]
+            self.cmb_type_filter.SelectedIndex = 0
+            plan_views = self.all_plan_views
 
-            # 5. Plan view items (one SelectableItem per plan view)
+        # ------------------------------------------------------------------
+        # 5. Plan view items (one SelectableItem per plan view)
+        # ------------------------------------------------------------------
+        try:
             preselected = set(self._preselected_names or [])
             self.plan_view_items = [
                 SelectableItem(
@@ -2476,18 +2538,27 @@ class PlaceViewsForm(forms.WPFWindow):
                 for v in plan_views
             ]
             self.refresh_plan_views_list()
-
-            self.txt_loading_status.Text = "Checking sheet number availability…"
-
-            # 6. Auto-detect next sheet base (ViewSheet collector)
-            self._auto_detect_next_base(initial=True)
-
         except Exception as ex:
-            self.txt_loading_status.Text = "Error loading data: {}".format(ex)
-            return
+            errors.append("plan view list: {}".format(ex))
 
-        # All done — hide the loading banner and enable Place Views
-        self.pnl_loading.Visibility = Visibility.Collapsed
+        # ------------------------------------------------------------------
+        # 6. Auto-detect next sheet base (ViewSheet collector)
+        # ------------------------------------------------------------------
+        try:
+            self.txt_loading_status.Text = "Checking sheet number availability…"
+            self._auto_detect_next_base(initial=True)
+        except Exception as ex:
+            errors.append("sheet numbering: {}".format(ex))
+
+        # ------------------------------------------------------------------
+        # Finish — update banner and always enable Place Views
+        # ------------------------------------------------------------------
+        if errors:
+            self.txt_loading_status.Text = u"⚠ Partial load — {}.".format("; ".join(errors))
+            # Leave banner visible as a warning but still allow use
+        else:
+            self.pnl_loading.Visibility = Visibility.Collapsed
+
         self.btn_ok.IsEnabled = True
 
     # -- population helpers --------------------------------------------
