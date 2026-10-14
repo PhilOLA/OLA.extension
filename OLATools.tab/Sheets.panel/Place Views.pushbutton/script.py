@@ -45,7 +45,7 @@ LAST_SHEET_NAME_KEY = "last_sheet_name"
 LAST_PLAN_TEMPLATE_KEY = "last_plan_template_name"
 LAST_ELEV_TEMPLATE_KEY = "last_elev_template_name"
 
-TOOL_VERSION = "1.0.3"
+TOOL_VERSION = "1.0.4"
 
 # ---- DEFAULTS (shown pre-filled in the dialog, editable there) ----
 GAP = 0.05  # feet between viewports in the grid (~0.6")
@@ -2096,6 +2096,16 @@ FORM_XAML = """
             <TextBlock Text="Place RLS Plan &amp; Elevations on Sheets" FontSize="17" FontWeight="Bold"/>
             <TextBlock Text="Select a title block, tick one or more plan views, and set sheet options. Saved plan view sets are optional."
                        Foreground="#FF9B9B9B" FontSize="11" Margin="0,3,0,0"/>
+            <!-- Loading banner: visible while deferred data is being collected -->
+            <Border x:Name="pnl_loading" Background="#FF1A3A5C" CornerRadius="4"
+                    Margin="0,8,0,0" Padding="10,6" Visibility="Visible">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="⏳" FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="txt_loading_status"
+                               Text="Loading view data — please wait…"
+                               Foreground="#FF4FC3F7" FontSize="12" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Border>
         </StackPanel>
 
         <StackPanel Grid.Row="1">
@@ -2345,7 +2355,17 @@ class PlaceViewsForm(forms.WPFWindow):
         self.result = None  # populated on successful OK
         self._place_clicked = False
         self._validated = None
+        self._preselected_names = preselected_names
 
+        # Placeholder state — filled in _on_content_rendered after window is visible
+        self.placed_dict = {}
+        self.viewport_types = []
+        self.view_templates = []
+        self.plan_view_items = []
+        self._all_view_types = []
+        self._filtered_type_items = []
+
+        # ── Cheap / immediate setup (no Revit collectors) ─────────────────
         title_block_names = [title_block_display_name(tb) for tb in title_blocks]
         self.cmb_title_block.ItemsSource = title_block_names
         if prefs.get("title_block_name") in title_block_names:
@@ -2357,7 +2377,6 @@ class PlaceViewsForm(forms.WPFWindow):
         self.txt_h_offset.Text = str(prefs.get("h_offset_mm", DEFAULT_ELEV_GRID_HORIZONTAL_OFFSET_MM))
         self.txt_start_number.Text = prefs.get("start_number", DEFAULT_START_SHEET_NUMBER)
         self.txt_temp_prefix.Text = prefs.get("temp_prefix", DEFAULT_TEMP_PREFIX)
-        self._auto_detect_next_base(initial=True)
         self.txt_margin.Text = str(prefs.get("margin_mm", DEFAULT_TITLE_BLOCK_MARGIN_MM))
         self.txt_title_char_limit.Text = str(prefs.get("title_char_limit", DEFAULT_TITLE_CHAR_LIMIT))
         self.txt_sheet_name.Text = prefs.get("sheet_name", DEFAULT_SHEET_NAME)
@@ -2369,28 +2388,15 @@ class PlaceViewsForm(forms.WPFWindow):
             layout_index = 0
         self.cmb_layout.SelectedIndex = layout_index
 
-        self.viewport_types = get_selectable_viewport_types()
-        viewport_type_names = [viewport_type_display_name(t) for t in self.viewport_types]
-        self.cmb_viewport_type.ItemsSource = ["(default)"] + viewport_type_names
-        pref_vp_name = prefs.get("viewport_type_name", "")
-        if pref_vp_name and pref_vp_name in viewport_type_names:
-            self.cmb_viewport_type.SelectedIndex = viewport_type_names.index(pref_vp_name) + 1
-        elif self.viewport_types:
-            self.cmb_viewport_type.SelectedIndex = default_viewport_type_index(self.viewport_types) + 1
-        else:
-            self.cmb_viewport_type.SelectedIndex = 0
-
-        # View templates
-        self.view_templates = get_selectable_view_templates()
-        template_names = ["(none)"] + [t.Name for t in self.view_templates]
-        self.cmb_plan_template.ItemsSource = template_names
-        self.cmb_elev_template.ItemsSource = template_names
-        pref_plan_tmpl = prefs.get("plan_template_name", "")
-        pref_elev_tmpl = prefs.get("elev_template_name", "")
-        self.cmb_plan_template.SelectedIndex = (template_names.index(pref_plan_tmpl)
-                                                 if pref_plan_tmpl in template_names else 0)
-        self.cmb_elev_template.SelectedIndex = (template_names.index(pref_elev_tmpl)
-                                                 if pref_elev_tmpl in template_names else 0)
+        # Placeholder dropdowns — replaced after ContentRendered fires
+        self.cmb_viewport_type.ItemsSource = ["(loading…)"]
+        self.cmb_viewport_type.SelectedIndex = 0
+        self.cmb_plan_template.ItemsSource = ["(loading…)"]
+        self.cmb_plan_template.SelectedIndex = 0
+        self.cmb_elev_template.ItemsSource = ["(loading…)"]
+        self.cmb_elev_template.SelectedIndex = 0
+        self.cmb_type_filter.ItemsSource = ["(loading…)"]
+        self.cmb_type_filter.SelectedIndex = 0
 
         self.chk_separate_transactions.IsChecked = True
         self.chk_audit_sheet_name.IsChecked = False
@@ -2400,30 +2406,89 @@ class PlaceViewsForm(forms.WPFWindow):
         self.chk_hide_placed.IsChecked = False
         self.txt_sheet_name.IsEnabled = True
 
-        # Build placed-views dict once (single viewport sweep — fast)
-        self.placed_dict = build_placed_views_dict()
-
-        # Build view type filter data — pass the already-collected plan_views to
-        # avoid a duplicate FilteredElementCollector sweep inside the function.
-        self._all_view_types = get_plan_view_type_names(existing_plan_views=plan_views)  # [(type_id_int, name), ...]
-        self._filtered_type_items = list(self._all_view_types)
-        self._populate_type_combobox()
-
-        # One persistent SelectableItem per plan view - checked state survives
-        # filtering since we always reuse these same objects.
-        preselected = set(preselected_names or [])
-        self.plan_view_items = [
-            SelectableItem(
-                v.Name,
-                checked=(v.Name in preselected),
-                sheet_number=self.placed_dict.get(int(v.Id.IntegerValue), ""),
-                type_id=int(v.GetTypeId().IntegerValue)
-            )
-            for v in plan_views
-        ]
+        # Disable Place Views button until loading completes
+        self.btn_ok.IsEnabled = False
 
         self.refresh_saved_sets_combo()
-        self.refresh_plan_views_list()
+        # list is empty until _on_content_rendered finishes
+        self.lst_plan_views.ItemsSource = []
+        self.txt_selection_count.Text = "Loading…"
+
+        # Wire deferred heavy loading — fires after the window first renders
+        self.ContentRendered += self._on_content_rendered
+
+    def _on_content_rendered(self, sender, args):
+        """Run all expensive FilteredElementCollector calls AFTER the window is
+        visible. The user sees the dialog immediately; this fills in the
+        remaining data (viewport types, view templates, placed-view state,
+        plan view list, sheet-number check) while the window is open."""
+        try:
+            self.txt_loading_status.Text = "Loading viewport types…"
+
+            # 1. Viewport types
+            self.viewport_types = get_selectable_viewport_types()
+            viewport_type_names = [viewport_type_display_name(t) for t in self.viewport_types]
+            self.cmb_viewport_type.ItemsSource = ["(default)"] + viewport_type_names
+            pref_vp_name = self.prefs.get("viewport_type_name", "")
+            if pref_vp_name and pref_vp_name in viewport_type_names:
+                self.cmb_viewport_type.SelectedIndex = viewport_type_names.index(pref_vp_name) + 1
+            elif self.viewport_types:
+                self.cmb_viewport_type.SelectedIndex = default_viewport_type_index(self.viewport_types) + 1
+            else:
+                self.cmb_viewport_type.SelectedIndex = 0
+
+            self.txt_loading_status.Text = "Loading view templates…"
+
+            # 2. View templates
+            self.view_templates = get_selectable_view_templates()
+            template_names = ["(none)"] + [t.Name for t in self.view_templates]
+            self.cmb_plan_template.ItemsSource = template_names
+            self.cmb_elev_template.ItemsSource = template_names
+            pref_plan_tmpl = self.prefs.get("plan_template_name", "")
+            pref_elev_tmpl = self.prefs.get("elev_template_name", "")
+            self.cmb_plan_template.SelectedIndex = (template_names.index(pref_plan_tmpl)
+                                                     if pref_plan_tmpl in template_names else 0)
+            self.cmb_elev_template.SelectedIndex = (template_names.index(pref_elev_tmpl)
+                                                     if pref_elev_tmpl in template_names else 0)
+
+            self.txt_loading_status.Text = "Checking placed views…"
+
+            # 3. Placed-views dict (single Viewport sweep)
+            self.placed_dict = build_placed_views_dict()
+
+            self.txt_loading_status.Text = "Building plan view list…"
+
+            # 4. View type filter data
+            plan_views = self.all_plan_views
+            self._all_view_types = get_plan_view_type_names(existing_plan_views=plan_views)
+            self._filtered_type_items = list(self._all_view_types)
+            self._populate_type_combobox()
+
+            # 5. Plan view items (one SelectableItem per plan view)
+            preselected = set(self._preselected_names or [])
+            self.plan_view_items = [
+                SelectableItem(
+                    v.Name,
+                    checked=(v.Name in preselected),
+                    sheet_number=self.placed_dict.get(int(v.Id.IntegerValue), ""),
+                    type_id=int(v.GetTypeId().IntegerValue)
+                )
+                for v in plan_views
+            ]
+            self.refresh_plan_views_list()
+
+            self.txt_loading_status.Text = "Checking sheet number availability…"
+
+            # 6. Auto-detect next sheet base (ViewSheet collector)
+            self._auto_detect_next_base(initial=True)
+
+        except Exception as ex:
+            self.txt_loading_status.Text = "Error loading data: {}".format(ex)
+            return
+
+        # All done — hide the loading banner and enable Place Views
+        self.pnl_loading.Visibility = Visibility.Collapsed
+        self.btn_ok.IsEnabled = True
 
     # -- population helpers --------------------------------------------
 
