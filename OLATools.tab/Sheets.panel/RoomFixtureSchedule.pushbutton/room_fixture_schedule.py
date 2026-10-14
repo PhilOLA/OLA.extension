@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Room Fixture Schedule Tool  v1.0
+Room Fixture Schedule Tool  v1.1
 =================================
 pyRevit IronPython pushbutton — Revit 2024 / IronPython 2.7
 
@@ -65,7 +65,7 @@ doc    = revit.doc
 uidoc  = revit.uidoc
 config = script.get_config()
 
-VERSION = "v1.0"
+VERSION = "v1.1"
 
 # ── Config ────────────────────────────────────────────────────────────────────
 CFG_TEMPLATE          = "template_name"
