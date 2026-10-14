@@ -45,7 +45,7 @@ LAST_SHEET_NAME_KEY = "last_sheet_name"
 LAST_PLAN_TEMPLATE_KEY = "last_plan_template_name"
 LAST_ELEV_TEMPLATE_KEY = "last_elev_template_name"
 
-TOOL_VERSION = "1.0.9"
+TOOL_VERSION = "1.0.10"
 
 # ---- DEFAULTS (shown pre-filled in the dialog, editable there) ----
 GAP = 0.05  # feet between viewports in the grid (~0.6")
@@ -588,17 +588,19 @@ def is_sheet_empty(sheet):
     return True
 
 
-def get_selectable_view_templates():
-    """All view templates in the project that could be applied to plan or
-    elevation views, sorted by name. Returns a list of View elements that
-    have IsTemplate=True.
+def get_selectable_view_templates(view_classes=None):
+    """View templates for the given Revit view class(es), sorted by name.
 
-    Uses targeted per-class collectors (ViewPlan, ViewSection, View3D) instead
-    of a single OfClass(DB.View) sweep to avoid loading ViewSheet, ViewSchedule,
-    ViewDrafting and other non-template-applicable types — significantly faster
-    in large projects."""
+    view_classes — iterable of DB.View subclasses to collect from.
+    Defaults to (ViewPlan, ViewSection, View3D) for backward compatibility.
+
+    Pass (DB.ViewPlan,) for plan-only templates and (DB.ViewSection,) for
+    elevation/section templates so each dropdown only shows applicable items.
+    """
+    if view_classes is None:
+        view_classes = (DB.ViewPlan, DB.ViewSection, DB.View3D)
     templates = []
-    for cls in (DB.ViewPlan, DB.ViewSection, DB.View3D):
+    for cls in view_classes:
         try:
             views = DB.FilteredElementCollector(doc).OfClass(cls).ToElements()
             templates.extend(v for v in views if v.IsTemplate)
@@ -2391,7 +2393,9 @@ class PlaceViewsForm(forms.WPFWindow):
         # Placeholder state — filled in _on_content_rendered after window is visible
         self.placed_dict = {}
         self.viewport_types = []
-        self.view_templates = []
+        self.view_templates = []        # kept for backward compat; not used directly
+        self.plan_view_templates = []   # ViewPlan templates only → cmb_plan_template
+        self.elev_view_templates = []   # ViewSection templates only → cmb_elev_template
         self.plan_view_items = []
         self._all_view_types = []
         self._filtered_type_items = []
@@ -2494,25 +2498,36 @@ class PlaceViewsForm(forms.WPFWindow):
             self.cmb_viewport_type.SelectedIndex = 0
 
         # ------------------------------------------------------------------
-        # 2. View templates
+        # 2. View templates — filtered per dropdown so each list only shows
+        #    templates applicable to that view class.
         # ------------------------------------------------------------------
         try:
             self.txt_loading_status.Text = "Loading view templates…"
-            self.view_templates = get_selectable_view_templates()
-            template_names = ["(none)"] + [t.Name for t in self.view_templates]
-            stripped_tmpl_names = [n.strip() for n in template_names]
-            self.cmb_plan_template.ItemsSource = template_names
-            self.cmb_elev_template.ItemsSource = template_names
+
+            # Plan templates: ViewPlan class only
+            self.plan_view_templates = get_selectable_view_templates(
+                view_classes=(DB.ViewPlan,))
+            plan_tmpl_names = ["(none)"] + [t.Name for t in self.plan_view_templates]
+            stripped_plan_names = [n.strip() for n in plan_tmpl_names]
+            self.cmb_plan_template.ItemsSource = plan_tmpl_names
+
+            # Elevation templates: ViewSection class only (interior elevations
+            # are ViewSection in the Revit API)
+            self.elev_view_templates = get_selectable_view_templates(
+                view_classes=(DB.ViewSection,))
+            elev_tmpl_names = ["(none)"] + [t.Name for t in self.elev_view_templates]
+            stripped_elev_names = [n.strip() for n in elev_tmpl_names]
+            self.cmb_elev_template.ItemsSource = elev_tmpl_names
 
             pref_plan_tmpl = (self.prefs.get("plan_template_name", "") or "").strip()
             pref_elev_tmpl = (self.prefs.get("elev_template_name", "") or "").strip()
             self.cmb_plan_template.SelectedIndex = (
-                stripped_tmpl_names.index(pref_plan_tmpl)
-                if pref_plan_tmpl in stripped_tmpl_names else 0
+                stripped_plan_names.index(pref_plan_tmpl)
+                if pref_plan_tmpl in stripped_plan_names else 0
             )
             self.cmb_elev_template.SelectedIndex = (
-                stripped_tmpl_names.index(pref_elev_tmpl)
-                if pref_elev_tmpl in stripped_tmpl_names else 0
+                stripped_elev_names.index(pref_elev_tmpl)
+                if pref_elev_tmpl in stripped_elev_names else 0
             )
         except Exception as ex:
             errors.append("view templates: {}".format(ex))
@@ -2709,21 +2724,31 @@ class PlaceViewsForm(forms.WPFWindow):
         else:
             self.update_selection_count()
 
+    def _template_list_for(self, cmb):
+        """Return the correct backing template list for a given ComboBox."""
+        if cmb is self.cmb_plan_template:
+            return self.plan_view_templates
+        if cmb is self.cmb_elev_template:
+            return self.elev_view_templates
+        return self.view_templates  # fallback for any unexpected caller
+
     def _get_template_id(self, cmb):
         idx = cmb.SelectedIndex
-        if idx <= 0 or not self.view_templates:
+        tmpl_list = self._template_list_for(cmb)
+        if idx <= 0 or not tmpl_list:
             return DB.ElementId.InvalidElementId
         try:
-            return self.view_templates[idx - 1].Id
+            return tmpl_list[idx - 1].Id
         except Exception:
             return DB.ElementId.InvalidElementId
 
     def _get_template_name(self, cmb):
         idx = cmb.SelectedIndex
-        if idx <= 0 or not self.view_templates:
+        tmpl_list = self._template_list_for(cmb)
+        if idx <= 0 or not tmpl_list:
             return ""
         try:
-            return self.view_templates[idx - 1].Name
+            return tmpl_list[idx - 1].Name
         except Exception:
             return ""
 
