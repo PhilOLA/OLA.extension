@@ -105,7 +105,7 @@ logger = script.get_logger()
 
 XAML_PATH = os.path.join(os.path.dirname(__file__), "ui.xaml")
 
-TOOL_VERSION = "1.6.8"
+TOOL_VERSION = "1.7.0"
 
 # ---------------------------------------------------------------------------
 # Extensible storage - marks a view we have adjusted, so a later run can
@@ -2161,6 +2161,114 @@ def diagnose_single_marker(marker):
     return rows
 
 
+def prewarm_marker_cache(rooms):
+    """Pre-resolve ALL marker locations for the selected rooms' levels in
+    one batch pass, populating _MARKER_LOCATION_CACHE upfront instead of
+    lazily one-marker-at-a-time inside get_elevation_views_for_room().
+
+    WHY THIS IS FAST: get_marker_location() temporarily toggles
+    CropBoxVisible=False on each marker's own 4 elevation views (to remove
+    the crop-width indicator lines that skew the bbox midpoint), queries
+    get_BoundingBox() against a reference plan view, then restores
+    CropBoxVisible=True. Each toggle is a document write that Revit must
+    serialise. Done lazily, that's N_rooms × N_markers × N_views worth of
+    individual writes. This function does ONE bulk toggle-all-off, queries
+    every (marker, ref_view_set) pair, then restores-all-at-once — cutting
+    the number of CropBoxVisible writes from O(rooms×markers×views) down to
+    O(markers×views), and typically from thousands of writes down to two
+    passes over the marker list. The first button press warms the cache for
+    every marker in the model; subsequent presses hit only uncached entries
+    (new markers placed since the last press).
+    """
+    global _MARKER_LOCATION_CACHE
+
+    # Unique level keys for the selected rooms, with their ref_views
+    level_to_ref_views = {}
+    for room in rooms:
+        key = room.LevelId.IntegerValue if room.LevelId else -1
+        if key not in level_to_ref_views:
+            level_to_ref_views[key] = find_reference_plan_views(room)
+
+    if not level_to_ref_views:
+        return
+
+    markers = list(FilteredElementCollector(doc).OfClass(ElevationMarker).ToElements())
+    if not markers:
+        return
+
+    # Quick bail if everything is already cached
+    needs_work = any(
+        (marker.Id.IntegerValue, level_key) not in _MARKER_LOCATION_CACHE
+        for marker in markers
+        for level_key in level_to_ref_views
+    )
+    if not needs_work:
+        return
+
+    # Bulk-toggle CropBoxVisible=False on all markers' own elevation views.
+    # (Same purpose as the per-marker toggle in get_marker_location: remove
+    # the crop-width indicator lines so the bbox midpoint is the marker's
+    # true centre, not offset by an inherited-from-another-room crop line.)
+    toggled_off = []
+    for marker in markers:
+        for i in range(4):
+            try:
+                if marker.IsAvailableIndex(i):
+                    continue  # slot is empty — no view here
+                view_id = marker.GetViewId(i)
+                if view_id is None or view_id == ElementId.InvalidElementId:
+                    continue
+                v = doc.GetElement(view_id)
+                if v is None:
+                    continue
+                try:
+                    if v.CropBoxVisible:
+                        v.CropBoxVisible = False
+                        toggled_off.append(v)
+                except Exception:
+                    pass
+            except Exception:
+                continue
+
+    try:
+        for marker in markers:
+            mid = marker.Id.IntegerValue
+            for level_key, ref_views in level_to_ref_views.items():
+                cache_key = (mid, level_key)
+                if cache_key in _MARKER_LOCATION_CACHE:
+                    continue  # already resolved (e.g. from a previous button press)
+
+                test_pt = None
+                resolved_view = None
+                for rv in ref_views:
+                    try:
+                        bbox = marker.get_BoundingBox(rv)
+                    except Exception:
+                        bbox = None
+                    if bbox is not None:
+                        test_pt = (bbox.Min + bbox.Max) / 2.0
+                        resolved_view = rv
+                        break
+
+                # Fall back to Location.Point if no plan view resolved a bbox
+                if test_pt is None:
+                    loc = marker.Location
+                    if loc is not None and hasattr(loc, "Point"):
+                        test_pt = loc.Point
+
+                # Cache as (point, resolved_view, fail_diag=[]) — same shape
+                # as the lazy path in get_elevation_views_for_room, so lookups
+                # work identically whether the entry was warmed here or lazily.
+                _MARKER_LOCATION_CACHE[cache_key] = (test_pt, resolved_view, [])
+    finally:
+        # Always restore, even if the bbox queries raised
+        for v in toggled_off:
+            try:
+                v.CropBoxVisible = True
+            except Exception:
+                pass
+
+
 def get_elevation_views_for_room(room, diag=None):
     """All (view, marker_location) pairs for ViewSection elevation views
     (from any ElevationMarker in the model) whose MARKER sits inside
@@ -2778,10 +2886,22 @@ class CropFixerWindow(forms.WPFWindow):
             t = Transaction(doc, "Fix elevation crops")
             t.Start()
 
+            # Pre-warm the marker location cache for all selected rooms'
+            # levels in one batch before the per-room loop.  This converts
+            # N_rooms × N_markers individual CropBoxVisible toggle-query-
+            # restore cycles into a single bulk toggle pass, which is the
+            # dominant cost on a first run in a fresh Revit session.
+            # Subsequent button presses hit only uncached entries (newly
+            # placed markers), so they are fast regardless.
+            prewarm_marker_cache(rooms)
+
             # gather (view, room, marker_location) triples first so the
             # progress bar is accurate. Must happen inside the transaction:
             # get_marker_location() temporarily toggles Crop Region
-            # Visible on each marker's views to get an accurate reading.
+            # Visible on each marker's views to get an accurate reading
+            # (already done above by prewarm_marker_cache, but the call
+            # is safe to leave here as a no-op fallback for any marker
+            # that somehow wasn't covered).
             jobs = []
             diag = []
             zero_match_rooms = []  # (room_name, this room's own diag slice)
