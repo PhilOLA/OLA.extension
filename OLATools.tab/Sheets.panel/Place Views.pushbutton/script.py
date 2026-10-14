@@ -45,7 +45,7 @@ LAST_SHEET_NAME_KEY = "last_sheet_name"
 LAST_PLAN_TEMPLATE_KEY = "last_plan_template_name"
 LAST_ELEV_TEMPLATE_KEY = "last_elev_template_name"
 
-TOOL_VERSION = "1.0.11"
+TOOL_VERSION = "1.0.12"
 
 # ---- DEFAULTS (shown pre-filled in the dialog, editable there) ----
 GAP = 0.05  # feet between viewports in the grid (~0.6")
@@ -2211,7 +2211,7 @@ FORM_XAML = """
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <Button x:Name="btn_select_placed" Grid.Column="0" Click="btn_select_placed_click" Style="{StaticResource SmallButton}">
-                    <TextBlock Text="Select Placed" Foreground="#FF4DB6AC"/>
+                    <TextBlock Text="Select Placed (visible)" Foreground="#FF4DB6AC"/>
                 </Button>
                 <Button x:Name="btn_unselect_all" Grid.Column="1" Content="Unselect All" Click="btn_unselect_all_click" Style="{StaticResource SmallButton}"/>
             </Grid>
@@ -2830,9 +2830,14 @@ class PlaceViewsForm(forms.WPFWindow):
         self.refresh_plan_views_list(self.txt_filter.Text)
 
     def btn_select_placed_click(self, sender, args):
-        """Tick every view (across ALL items, not just visible) that is already
-        on a sheet. Useful for reviewing or removing previously-placed views."""
-        for item in self.plan_view_items:
+        """Tick every VISIBLE item that is already on a sheet.
+
+        Operates on the currently visible (filtered) list — the same scope as
+        'Select All (visible)' — so loading a print set then enabling
+        'Show only selected' before clicking here will tick only the already-
+        placed views within that set, not every placed view in the project.
+        """
+        for item in list(self.lst_plan_views.ItemsSource):
             if item.SheetNumber:
                 item.IsChecked = True
         self.refresh_plan_views_list(self.txt_filter.Text)
