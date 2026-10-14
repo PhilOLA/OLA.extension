@@ -45,7 +45,7 @@ LAST_SHEET_NAME_KEY = "last_sheet_name"
 LAST_PLAN_TEMPLATE_KEY = "last_plan_template_name"
 LAST_ELEV_TEMPLATE_KEY = "last_elev_template_name"
 
-TOOL_VERSION = "1.0.10"
+TOOL_VERSION = "1.0.11"
 
 # ---- DEFAULTS (shown pre-filled in the dialog, editable there) ----
 GAP = 0.05  # feet between viewports in the grid (~0.6")
@@ -588,14 +588,18 @@ def is_sheet_empty(sheet):
     return True
 
 
-def get_selectable_view_templates(view_classes=None):
+def get_selectable_view_templates(view_classes=None, view_types=None):
     """View templates for the given Revit view class(es), sorted by name.
 
     view_classes — iterable of DB.View subclasses to collect from.
     Defaults to (ViewPlan, ViewSection, View3D) for backward compatibility.
 
-    Pass (DB.ViewPlan,) for plan-only templates and (DB.ViewSection,) for
-    elevation/section templates so each dropdown only shows applicable items.
+    view_types — optional iterable of DB.ViewType enum values to further
+    filter by ViewType.  Use this to ensure plan templates only contain
+    FloorPlan/CeilingPlan etc. and elevation templates only Elevation.
+
+    Pass (DB.ViewPlan,) + PLAN_VIEW_TYPES for plan-only templates and
+    (DB.ViewSection,) + ELEV_VIEW_TYPES for elevation templates.
     """
     if view_classes is None:
         view_classes = (DB.ViewPlan, DB.ViewSection, DB.View3D)
@@ -603,7 +607,12 @@ def get_selectable_view_templates(view_classes=None):
     for cls in view_classes:
         try:
             views = DB.FilteredElementCollector(doc).OfClass(cls).ToElements()
-            templates.extend(v for v in views if v.IsTemplate)
+            for v in views:
+                if not v.IsTemplate:
+                    continue
+                if view_types is not None and v.ViewType not in view_types:
+                    continue
+                templates.append(v)
         except Exception:
             pass
     templates.sort(key=lambda v: v.Name)
@@ -2504,17 +2513,25 @@ class PlaceViewsForm(forms.WPFWindow):
         try:
             self.txt_loading_status.Text = "Loading view templates…"
 
-            # Plan templates: ViewPlan class only
+            # Plan templates: ViewPlan class + floor/ceiling/area/engineering plan types only
+            _PLAN_VIEW_TYPES = (
+                DB.ViewType.FloorPlan,
+                DB.ViewType.CeilingPlan,
+                DB.ViewType.AreaPlan,
+                DB.ViewType.EngineeringPlan,
+            )
             self.plan_view_templates = get_selectable_view_templates(
-                view_classes=(DB.ViewPlan,))
+                view_classes=(DB.ViewPlan,), view_types=_PLAN_VIEW_TYPES)
             plan_tmpl_names = ["(none)"] + [t.Name for t in self.plan_view_templates]
             stripped_plan_names = [n.strip() for n in plan_tmpl_names]
             self.cmb_plan_template.ItemsSource = plan_tmpl_names
 
-            # Elevation templates: ViewSection class only (interior elevations
-            # are ViewSection in the Revit API)
+            # Elevation templates: ViewSection class + Elevation ViewType only.
+            # Interior elevations are ViewSection in the Revit API; filtering
+            # by ViewType.Elevation excludes Section and Detail templates.
+            _ELEV_VIEW_TYPES = (DB.ViewType.Elevation,)
             self.elev_view_templates = get_selectable_view_templates(
-                view_classes=(DB.ViewSection,))
+                view_classes=(DB.ViewSection,), view_types=_ELEV_VIEW_TYPES)
             elev_tmpl_names = ["(none)"] + [t.Name for t in self.elev_view_templates]
             stripped_elev_names = [n.strip() for n in elev_tmpl_names]
             self.cmb_elev_template.ItemsSource = elev_tmpl_names
