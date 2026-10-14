@@ -284,12 +284,21 @@ def sheet_to_set_map(print_sets):
     return mapping
 
 
+def _suppress_dialog(sender, e):
+    """Auto-dismiss any Revit dialog that appears during PrintManager access."""
+    try:
+        e.OverrideResult(1)   # 1 = OK / Close
+    except Exception:
+        pass
+
+
 def save_print_set(name, sheet_elements, existing_id=None):
     """
     Create or overwrite a ViewSheetSet via PrintManager.
     Returns (success, message).
     """
     try:
+        __revit__.DialogBoxShowing += _suppress_dialog
         pm = doc.PrintManager
         pm.PrintRange = PrintRange.Select
         vss = pm.ViewSheetSetting
@@ -299,21 +308,23 @@ def save_print_set(name, sheet_elements, existing_id=None):
         for s in sheet_elements:
             vs.Insert(s)
 
-        with Transaction(doc, "Print Set Manager — Save Set") as t:
-            t.Start()
-            if existing_id is not None:
-                # Overwrite: delete old, create new with same name
-                existing = doc.GetElement(existing_id)
-                if existing:
-                    vss.CurrentViewSheetSet = existing
-                    vss.Delete()
-            vss.SaveAs(name)
-            vss.CurrentViewSheetSet.Views = vs
-            vss.Save()
-            t.Commit()
-        return True, "Set '{}' saved — {} sheets".format(name, len(sheet_elements))
-    except Exception as ex:
-        return False, "Error saving set: {}".format(str(ex))
+        try:
+            with Transaction(doc, "Print Set Manager — Save Set") as t:
+                t.Start()
+                if existing_id is not None:
+                    existing = doc.GetElement(existing_id)
+                    if existing:
+                        vss.CurrentViewSheetSet = existing
+                        vss.Delete()
+                vss.SaveAs(name)
+                vss.CurrentViewSheetSet.Views = vs
+                vss.Save()
+                t.Commit()
+            return True, "Set '{}' saved — {} sheets".format(name, len(sheet_elements))
+        except Exception as ex:
+            return False, "Error saving set: {}".format(str(ex))
+        finally:
+            __revit__.DialogBoxShowing -= _suppress_dialog
 
 
 def delete_print_set(element_id):
