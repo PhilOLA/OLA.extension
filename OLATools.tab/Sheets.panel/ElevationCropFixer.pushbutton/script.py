@@ -105,7 +105,7 @@ logger = script.get_logger()
 
 XAML_PATH = os.path.join(os.path.dirname(__file__), "ui.xaml")
 
-TOOL_VERSION = "1.7.2"
+TOOL_VERSION = "1.7.3"
 
 # ---------------------------------------------------------------------------
 # Extensible storage - marks a view we have adjusted, so a later run can

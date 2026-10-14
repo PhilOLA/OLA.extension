@@ -2,8 +2,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="Elevation Crop Fixer"
-    Height="1280" Width="780"
-    MinHeight="800" MinWidth="700"
+    Height="1124" Width="780"
+    MinHeight="700" MinWidth="700"
     WindowStartupLocation="CenterScreen"
     ResizeMode="CanResizeWithGrip"
     Background="#FF2B2B2B">
@@ -52,6 +52,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- LEFT: room picker -->
@@ -81,7 +82,7 @@
         </StackPanel>
 
         <!-- RIGHT: options -->
-        <ScrollViewer Grid.Column="2" Grid.Row="0" Grid.RowSpan="2" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer Grid.Column="2" Grid.Row="0" Grid.RowSpan="3" VerticalScrollBarVisibility="Auto">
         <StackPanel>
             <TextBlock Text="Wall crop offset (mm)" Style="{StaticResource FieldHeadingStyle}"/>
             <TextBlock Text="Beyond each side wall's far face" Foreground="Gray" FontSize="11"/>
@@ -130,7 +131,7 @@
         </StackPanel>
         </ScrollViewer>
 
-        <ProgressBar x:Name="pb" Grid.Column="0" Grid.ColumnSpan="3" Grid.Row="2"
-                     Height="6" Margin="0,40,0,0" Minimum="0" Maximum="100"/>
+        <ProgressBar x:Name="pb" Grid.Column="0" Grid.ColumnSpan="3" Grid.Row="3"
+                     Height="6" Margin="0,8,0,0" Minimum="0" Maximum="100"/>
     </Grid>
 </Window>
