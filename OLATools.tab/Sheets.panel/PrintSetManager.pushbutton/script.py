@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Print Set Manager v1.1.0
+"""Print Set Manager v1.2.0
 Create and manage Revit print sets from joinery sheets.
 Tab 1 — Manage Sets: create/edit/delete ViewSheetSets.
 Tab 2 — New Sheets:  scan for joinery sheets not yet in any set.
@@ -42,7 +42,7 @@ from System.Windows.Controls.Primitives import DataGridColumnHeader
 from System.Windows.Media import SolidColorBrush, Color
 from System.Windows.Data import Binding
 
-VERSION = "v1.1.0"
+VERSION = "v1.2.0"
 
 doc = __revit__.ActiveUIDocument.Document
 
@@ -517,20 +517,35 @@ class PrintSetManagerWindow(Window):
 
         # ── RIGHT: sheet checklist ─────────────────────────────────────────
         right = Grid()
-        for h in (24, -1, 8, 28):
+        for h in (28, -1, 8, 28):
             rd = RowDefinition()
             rd.Height = GridLength(1, GridUnitType.Star) if h == -1 else GridLength(h)
             right.RowDefinitions.Add(rd)
         Grid.SetColumn(right, 2)
         outer.Children.Add(right)
 
-        # Sheet count label
+        # Top bar: sheet count + select/deselect all
+        top_bar = StackPanel()
+        top_bar.Orientation         = Orientation.Horizontal
+        top_bar.VerticalAlignment   = VerticalAlignment.Center
+        Grid.SetRow(top_bar, 0)
+        right.Children.Add(top_bar)
+
         self._sheet_count_lbl = TextBlock()
         self._sheet_count_lbl.Foreground = MUTED
         self._sheet_count_lbl.FontSize   = 10
         self._sheet_count_lbl.VerticalAlignment = VerticalAlignment.Center
-        Grid.SetRow(self._sheet_count_lbl, 0)
-        right.Children.Add(self._sheet_count_lbl)
+        top_bar.Children.Add(self._sheet_count_lbl)
+
+        sel_all_btn = make_button("Select All", MUTED, LINE, width=80, height=22, margin=(8,0,0,0))
+        sel_all_btn.FontSize = 10
+        sel_all_btn.Click   += self._on_select_all
+        top_bar.Children.Add(sel_all_btn)
+
+        desel_all_btn = make_button("Deselect All", MUTED, LINE, width=84, height=22, margin=(4,0,0,0))
+        desel_all_btn.FontSize = 10
+        desel_all_btn.Click   += self._on_deselect_all
+        top_bar.Children.Add(desel_all_btn)
 
         # Scrollable checklist
         sv = ScrollViewer()
@@ -592,6 +607,16 @@ class PrintSetManagerWindow(Window):
         scan_btn.Margin = Thickness(12, 0, 0, 0)
         scan_btn.Click += self._on_scan
         hdr.Children.Add(scan_btn)
+
+        sel_all_btn2 = make_button("Select All", MUTED, LINE, width=80, height=22, margin=(12,0,0,0))
+        sel_all_btn2.FontSize = 10
+        sel_all_btn2.Click   += self._on_scan_select_all
+        hdr.Children.Add(sel_all_btn2)
+
+        desel_all_btn2 = make_button("Deselect All", MUTED, LINE, width=84, height=22, margin=(4,0,0,0))
+        desel_all_btn2.FontSize = 10
+        desel_all_btn2.Click   += self._on_scan_deselect_all
+        hdr.Children.Add(desel_all_btn2)
 
         # Results list
         sv2 = ScrollViewer()
@@ -726,6 +751,40 @@ class PrintSetManagerWindow(Window):
         total = len(self._data.joinery_sheets)
         self._sheet_count_lbl.Text = "JOINERY SHEETS  —  {} of {} selected".format(
             count, total)
+
+    def _on_select_all(self, sender, e):
+        for i in range(self._sheet_panel.Children.Count):
+            row = self._sheet_panel.Children[i]
+            if isinstance(row, StackPanel) and row.Children.Count > 0:
+                cb = row.Children[0]
+                if isinstance(cb, CheckBox):
+                    cb.IsChecked = True
+        self._update_sheet_count()
+
+    def _on_deselect_all(self, sender, e):
+        for i in range(self._sheet_panel.Children.Count):
+            row = self._sheet_panel.Children[i]
+            if isinstance(row, StackPanel) and row.Children.Count > 0:
+                cb = row.Children[0]
+                if isinstance(cb, CheckBox):
+                    cb.IsChecked = False
+        self._update_sheet_count()
+
+    def _on_scan_select_all(self, sender, e):
+        for i in range(self._scan_panel.Children.Count):
+            row = self._scan_panel.Children[i]
+            if isinstance(row, StackPanel) and row.Children.Count > 0:
+                cb = row.Children[0]
+                if isinstance(cb, CheckBox):
+                    cb.IsChecked = True
+
+    def _on_scan_deselect_all(self, sender, e):
+        for i in range(self._scan_panel.Children.Count):
+            row = self._scan_panel.Children[i]
+            if isinstance(row, StackPanel) and row.Children.Count > 0:
+                cb = row.Children[0]
+                if isinstance(cb, CheckBox):
+                    cb.IsChecked = False
 
     def _on_sheet_checked(self, sender, e):
         self._update_sheet_count()
