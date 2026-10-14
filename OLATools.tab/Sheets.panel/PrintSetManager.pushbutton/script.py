@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Print Set Manager v1.2.0
+"""Print Set Manager v1.3.0
 Create and manage Revit print sets from joinery sheets.
-Tab 1 — Manage Sets: create/edit/delete ViewSheetSets.
-Tab 2 — New Sheets:  scan for joinery sheets not yet in any set.
+Tab 1 -- Manage Sets: create/edit/delete ViewSheetSets.
+Tab 2 -- New Sheets:  scan for joinery sheets missing from the loaded set.
 """
 __title__  = "Print Set\nManager"
 __author__ = "OLA"
@@ -23,6 +23,7 @@ from Autodesk.Revit.DB import (
 from Autodesk.Revit.DB.Architecture import Room
 
 from System.Collections.ObjectModel import ObservableCollection
+import System.Windows
 from System.Windows import (
     Window, HorizontalAlignment, VerticalAlignment, Thickness,
     FontWeights, ResizeMode, GridLength, GridUnitType,
@@ -42,11 +43,11 @@ from System.Windows.Controls.Primitives import DataGridColumnHeader
 from System.Windows.Media import SolidColorBrush, Color
 from System.Windows.Data import Binding
 
-VERSION = "v1.2.0"
+VERSION = "v1.3.0"
 
 doc = __revit__.ActiveUIDocument.Document
 
-# ── Colour helpers ─────────────────────────────────────────────────────────
+# -- Colour helpers -----------------------------------------------------------
 def hex_brush(h):
     h = h.lstrip("#")
     return SolidColorBrush(Color.FromArgb(255, int(h[0:2],16), int(h[2:4],16), int(h[4:6],16)))
@@ -66,12 +67,12 @@ ERROR    = hex_brush("#FF6B6B")
 LINE     = hex_brush("#3A3A3A")
 LINE2    = hex_brush("#2D2D2D")
 
-# ── Constants ──────────────────────────────────────────────────────────────
+# -- Constants ----------------------------------------------------------------
 PARAM        = "AR_RLS_ITEM CODE"
 SCHED_PREFIX = "ROOM FIXTURE SCHEDULE"
 RLS_SUFFIXES = {"0", "1", "2"}
 
-# ── Phase helper ───────────────────────────────────────────────────────────
+# -- Phase helper -------------------------------------------------------------
 def get_last_phase():
     last = None
     try:
@@ -83,7 +84,7 @@ def get_last_phase():
 
 LAST_PHASE = get_last_phase()
 
-# ── Room lookup (identical to joinery schedule) ────────────────────────────
+# -- Room lookup --------------------------------------------------------------
 def _room_at(pt):
     try:
         r = doc.GetRoomAtPoint(pt, LAST_PHASE) if LAST_PHASE else doc.GetRoomAtPoint(pt)
@@ -117,9 +118,8 @@ def get_room(fi):
         pass
     return None
 
-# ── Core data functions ────────────────────────────────────────────────────
+# -- Core data functions ------------------------------------------------------
 def get_joinery_room_numbers():
-    """Return set of upper-cased room numbers that contain joinery elements."""
     room_nos = set()
     for fi in FilteredElementCollector(doc).OfClass(FamilyInstance):
         p = fi.Symbol.LookupParameter(PARAM) if fi.Symbol else None
@@ -142,11 +142,6 @@ def get_joinery_room_numbers():
 
 
 def get_joinery_base_numbers(joinery_room_nos):
-    """
-    Return set of sheet base numbers (sheet number with suffix stripped)
-    for sheets that have a ROOM FIXTURE SCHEDULE belonging to a joinery room.
-    e.g. "BN 6701-0" → base "BN 6701"
-    """
     bases = set()
     for ssi in FilteredElementCollector(doc).OfClass(ScheduleSheetInstance):
         try:
@@ -180,7 +175,6 @@ def get_joinery_base_numbers(joinery_room_nos):
 
 
 def get_all_sheets_map():
-    """Return dict: sheet_number → ViewSheet element."""
     result = {}
     for s in FilteredElementCollector(doc).OfClass(ViewSheet):
         try:
@@ -194,10 +188,6 @@ def get_all_sheets_map():
 
 
 def get_sheet_full_title(sheet):
-    """
-    Build full display title from Sheet Name + OLA Sheet Title 2 + OLA Sheet Title 3.
-    Falls back gracefully if custom params are absent.
-    """
     parts = []
     try:
         p = sheet.get_Parameter(BuiltInParameter.SHEET_NAME)
@@ -219,11 +209,6 @@ def get_sheet_full_title(sheet):
 
 
 def expand_series(bases, all_sheets_map):
-    """
-    Given a set of base numbers, return sorted list of SheetInfo dicts
-    for every sheet in the model whose number starts with that base + "-".
-    SheetInfo: {sheet_no, title, sheet_id, base}
-    """
     results = []
     for sheet_no, sheet in all_sheets_map.items():
         if "-" not in sheet_no:
@@ -239,7 +224,6 @@ def expand_series(bases, all_sheets_map):
             "base":     base
         })
 
-    # Sort: by base then suffix numerically
     def _key(info):
         parts = info["sheet_no"].rsplit("-", 1)
         base  = parts[0]
@@ -254,7 +238,6 @@ def expand_series(bases, all_sheets_map):
 
 
 def get_existing_print_sets():
-    """Return list of dicts: {name, element_id, sheet_ids (set)}."""
     sets = []
     for vss in FilteredElementCollector(doc).OfClass(ViewSheetSet):
         try:
@@ -274,7 +257,6 @@ def get_existing_print_sets():
 
 
 def sheet_to_set_map(print_sets):
-    """Return dict: sheet_id → list of set names that contain it."""
     mapping = {}
     for ps in print_sets:
         for sid in ps["sheet_ids"]:
@@ -285,30 +267,24 @@ def sheet_to_set_map(print_sets):
 
 
 def _suppress_dialog(sender, e):
-    """Auto-dismiss any Revit dialog that appears during PrintManager access."""
     try:
-        e.OverrideResult(1)   # 1 = OK / Close
+        e.OverrideResult(1)
     except Exception:
         pass
 
 
 def save_print_set(name, sheet_elements, existing_id=None):
-    """
-    Create or overwrite a ViewSheetSet via PrintManager.
-    Returns (success, message).
-    """
     __revit__.DialogBoxShowing += _suppress_dialog
     try:
         pm = doc.PrintManager
         pm.PrintRange = PrintRange.Select
         vss = pm.ViewSheetSetting
 
-        # Build a ViewSet
         vs = ViewSet()
         for s in sheet_elements:
             vs.Insert(s)
 
-        with Transaction(doc, "Print Set Manager — Save Set") as t:
+        with Transaction(doc, "Print Set Manager - Save Set") as t:
             t.Start()
             if existing_id is not None:
                 existing = doc.GetElement(existing_id)
@@ -319,7 +295,7 @@ def save_print_set(name, sheet_elements, existing_id=None):
             vss.CurrentViewSheetSet.Views = vs
             vss.Save()
             t.Commit()
-        return True, "Set '{}' saved — {} sheets".format(name, len(sheet_elements))
+        return True, "Set '{}' saved - {} sheets".format(name, len(sheet_elements))
     except Exception as ex:
         return False, "Error saving set: {}".format(str(ex))
     finally:
@@ -327,9 +303,8 @@ def save_print_set(name, sheet_elements, existing_id=None):
 
 
 def delete_print_set(element_id):
-    """Delete a ViewSheetSet by element id. Returns (success, message)."""
     try:
-        with Transaction(doc, "Print Set Manager — Delete Set") as t:
+        with Transaction(doc, "Print Set Manager - Delete Set") as t:
             t.Start()
             doc.Delete(element_id)
             t.Commit()
@@ -338,7 +313,7 @@ def delete_print_set(element_id):
         return False, "Error deleting set: {}".format(str(ex))
 
 
-# ── Shared data (loaded once) ──────────────────────────────────────────────
+# -- Shared data --------------------------------------------------------------
 class AppData(object):
     def __init__(self):
         self.refresh()
@@ -352,7 +327,7 @@ class AppData(object):
         self.set_map          = sheet_to_set_map(self.print_sets)
 
 
-# ── WPF helpers ────────────────────────────────────────────────────────────
+# -- WPF helpers --------------------------------------------------------------
 def make_button(text, fg, border, width=110, height=28, margin=(8,0,0,0)):
     b = Button()
     b.Content         = text
@@ -368,7 +343,7 @@ def make_button(text, fg, border, width=110, height=28, margin=(8,0,0,0)):
 
 def make_label(text, fg=None, size=11, weight=None, margin=(0,0,0,0)):
     tb = TextBlock()
-    tb.Text      = text
+    tb.Text       = text
     tb.Foreground = fg or TEXT
     tb.FontSize   = size
     if weight:
@@ -388,12 +363,12 @@ def section_header(text):
     return tb
 
 
-# ── Main Window ────────────────────────────────────────────────────────────
+# -- Main Window --------------------------------------------------------------
 class PrintSetManagerWindow(Window):
     def __init__(self, data):
-        self._data        = data
-        self._editing_id  = None   # element Id of set being edited, or None
-        self._scan_done   = False
+        self._data       = data
+        self._editing_id = None
+        self._scan_done  = False
 
         self.Title      = "Print Set Manager  {}".format(VERSION)
         self.Width      = 1000
@@ -406,20 +381,19 @@ class PrintSetManagerWindow(Window):
         self._build_ui()
         self._refresh_sets_list()
 
-    # ──────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
     # UI construction
-    # ──────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
     def _build_ui(self):
         root = Grid()
         root.Margin = Thickness(12)
-        # Title row, tab row, status row
         for h in (36, -1, 28):
             rd = RowDefinition()
             rd.Height = GridLength(1, GridUnitType.Star) if h == -1 else GridLength(h)
             root.RowDefinitions.Add(rd)
         self.Content = root
 
-        # ── Title bar ──────────────────────────────────────────────────────
+        # Title bar
         title_panel = StackPanel()
         title_panel.Orientation = Orientation.Horizontal
         title_panel.VerticalAlignment = VerticalAlignment.Center
@@ -441,14 +415,13 @@ class PrintSetManagerWindow(Window):
         ver.VerticalAlignment = VerticalAlignment.Center
         title_panel.Children.Add(ver)
 
-        # ── Tab control ────────────────────────────────────────────────────
+        # Tab control
         tabs = TabControl()
         tabs.Background = PANEL
         tabs.BorderBrush = LINE
         Grid.SetRow(tabs, 1)
         root.Children.Add(tabs)
 
-        # Tab headers use a TextBlock so we control foreground explicitly
         def make_tab_header(text):
             tb = TextBlock()
             tb.Text       = text
@@ -468,7 +441,7 @@ class PrintSetManagerWindow(Window):
         tab2.Content = self._build_newsheets_tab()
         tabs.Items.Add(tab2)
 
-        # ── Status bar ─────────────────────────────────────────────────────
+        # Status bar
         self._status = TextBlock()
         self._status.Text       = "Ready"
         self._status.Foreground = MUTED
@@ -479,7 +452,6 @@ class PrintSetManagerWindow(Window):
         root.Children.Add(self._status)
 
     def _build_manage_tab(self):
-        """Two-column layout: left = existing sets, right = sheet checklist."""
         outer = Grid()
         outer.Margin = Thickness(8)
 
@@ -489,7 +461,7 @@ class PrintSetManagerWindow(Window):
         for c in (c0, c1, c2):
             outer.ColumnDefinitions.Add(c)
 
-        # ── LEFT: existing sets ────────────────────────────────────────────
+        # LEFT: existing sets
         left = Grid()
         for h in (-1, 8, 32, 8, 28):
             rd = RowDefinition()
@@ -510,7 +482,6 @@ class PrintSetManagerWindow(Window):
         Grid.SetRow(self._sets_listbox, 0)
         left.Children.Add(self._sets_listbox)
 
-        # New set name row
         name_lbl = make_label("Set name:", MUTED, size=10)
         Grid.SetRow(name_lbl, 2)
         left.Children.Add(name_lbl)
@@ -525,7 +496,7 @@ class PrintSetManagerWindow(Window):
         Grid.SetRow(self._name_box, 4)
         left.Children.Add(self._name_box)
 
-        # ── RIGHT: sheet checklist ─────────────────────────────────────────
+        # RIGHT: sheet checklist
         right = Grid()
         for h in (28, -1, 8, 28):
             rd = RowDefinition()
@@ -534,16 +505,15 @@ class PrintSetManagerWindow(Window):
         Grid.SetColumn(right, 2)
         outer.Children.Add(right)
 
-        # Top bar: sheet count + select/deselect all
         top_bar = StackPanel()
-        top_bar.Orientation         = Orientation.Horizontal
-        top_bar.VerticalAlignment   = VerticalAlignment.Center
+        top_bar.Orientation       = Orientation.Horizontal
+        top_bar.VerticalAlignment = VerticalAlignment.Center
         Grid.SetRow(top_bar, 0)
         right.Children.Add(top_bar)
 
         self._sheet_count_lbl = TextBlock()
-        self._sheet_count_lbl.Foreground = MUTED
-        self._sheet_count_lbl.FontSize   = 10
+        self._sheet_count_lbl.Foreground        = MUTED
+        self._sheet_count_lbl.FontSize          = 10
         self._sheet_count_lbl.VerticalAlignment = VerticalAlignment.Center
         top_bar.Children.Add(self._sheet_count_lbl)
 
@@ -557,12 +527,10 @@ class PrintSetManagerWindow(Window):
         desel_all_btn.Click   += self._on_deselect_all
         top_bar.Children.Add(desel_all_btn)
 
-        # Scrollable checklist
         sv = ScrollViewer()
-        sv.Background             = DARK
-        sv.BorderBrush            = LINE
-        sv.BorderThickness        = Thickness(1)
-        sv.VerticalScrollBarVisibilityProperty
+        sv.Background      = DARK
+        sv.BorderBrush     = LINE
+        sv.BorderThickness = Thickness(1)
         Grid.SetRow(sv, 1)
         right.Children.Add(sv)
 
@@ -572,7 +540,6 @@ class PrintSetManagerWindow(Window):
 
         self._populate_sheet_checklist()
 
-        # Action buttons
         btn_row = StackPanel()
         btn_row.Orientation         = Orientation.Horizontal
         btn_row.HorizontalAlignment = HorizontalAlignment.Right
@@ -594,39 +561,56 @@ class PrintSetManagerWindow(Window):
         return outer
 
     def _build_newsheets_tab(self):
-        """Scan tab: find joinery sheets not in any print set."""
+        """
+        Scan tab.
+        Workflow: load a set in Manage Sets -> come here -> Scan Now
+        shows joinery sheets NOT yet in that set -> tick -> Add to Set.
+        """
         outer = Grid()
         outer.Margin = Thickness(8)
-        for h in (32, -1, 8, 28):
+        for h in (60, -1, 8, 28):
             rd = RowDefinition()
             rd.Height = GridLength(1, GridUnitType.Star) if h == -1 else GridLength(h)
             outer.RowDefinitions.Add(rd)
 
-        # Header row
-        hdr = StackPanel()
-        hdr.Orientation      = Orientation.Horizontal
-        hdr.VerticalAlignment = VerticalAlignment.Center
-        Grid.SetRow(hdr, 0)
-        outer.Children.Add(hdr)
+        # Header: two-row grid (description + buttons)
+        hdr_grid = Grid()
+        Grid.SetRow(hdr_grid, 0)
+        outer.Children.Add(hdr_grid)
+        for h2 in (28, 28):
+            rd2 = RowDefinition()
+            rd2.Height = GridLength(h2)
+            hdr_grid.RowDefinitions.Add(rd2)
 
-        hdr.Children.Add(make_label(
-            "Joinery sheets not yet assigned to any print set.",
-            MUTED, size=11))
+        # Row 0: context label
+        self._scan_context_lbl = TextBlock()
+        self._scan_context_lbl.Foreground   = MUTED
+        self._scan_context_lbl.FontSize     = 11
+        self._scan_context_lbl.VerticalAlignment = VerticalAlignment.Center
+        self._scan_context_lbl.TextWrapping = System.Windows.TextWrapping.Wrap
+        Grid.SetRow(self._scan_context_lbl, 0)
+        hdr_grid.Children.Add(self._scan_context_lbl)
 
-        scan_btn = make_button("  Scan Now  ", BLUE, BLUE, width=100)
-        scan_btn.Margin = Thickness(12, 0, 0, 0)
+        # Row 1: buttons
+        btn_row2 = StackPanel()
+        btn_row2.Orientation      = Orientation.Horizontal
+        btn_row2.VerticalAlignment = VerticalAlignment.Center
+        Grid.SetRow(btn_row2, 1)
+        hdr_grid.Children.Add(btn_row2)
+
+        scan_btn = make_button("  Scan Now  ", BLUE, BLUE, width=100, margin=(0,0,0,0))
         scan_btn.Click += self._on_scan
-        hdr.Children.Add(scan_btn)
+        btn_row2.Children.Add(scan_btn)
 
         sel_all_btn2 = make_button("Select All", MUTED, LINE, width=80, height=22, margin=(12,0,0,0))
         sel_all_btn2.FontSize = 10
         sel_all_btn2.Click   += self._on_scan_select_all
-        hdr.Children.Add(sel_all_btn2)
+        btn_row2.Children.Add(sel_all_btn2)
 
         desel_all_btn2 = make_button("Deselect All", MUTED, LINE, width=84, height=22, margin=(4,0,0,0))
         desel_all_btn2.FontSize = 10
         desel_all_btn2.Click   += self._on_scan_deselect_all
-        hdr.Children.Add(desel_all_btn2)
+        btn_row2.Children.Add(desel_all_btn2)
 
         # Results list
         sv2 = ScrollViewer()
@@ -640,12 +624,7 @@ class PrintSetManagerWindow(Window):
         self._scan_panel.Background = DARK
         sv2.Content = self._scan_panel
 
-        placeholder = make_label(
-            "Press 'Scan Now' to check for unassigned joinery sheets.",
-            MUTED, size=11, margin=(12,12,0,0))
-        self._scan_panel.Children.Add(placeholder)
-
-        # Bottom row: add-to-set controls
+        # Bottom row: add button targets the loaded set directly
         bottom = StackPanel()
         bottom.Orientation         = Orientation.Horizontal
         bottom.HorizontalAlignment = HorizontalAlignment.Right
@@ -653,35 +632,45 @@ class PrintSetManagerWindow(Window):
         Grid.SetRow(bottom, 3)
         outer.Children.Add(bottom)
 
-        bottom.Children.Add(make_label("Add selected to set:", MUTED, size=10,
-                                       margin=(0,0,8,0)))
+        self._add_to_set_lbl = make_label("", MUTED, size=10, margin=(0,0,8,0))
+        bottom.Children.Add(self._add_to_set_lbl)
 
-        self._set_combo = ComboBox()
-        self._set_combo.Width       = 220
-        self._set_combo.Height      = 26
-        self._set_combo.Background  = BTN_BG
-        self._set_combo.Foreground  = TEXT
-        self._set_combo.BorderBrush = LINE
-        self._set_combo.Margin      = Thickness(0, 0, 8, 0)
-        self._refresh_set_combo()
-        bottom.Children.Add(self._set_combo)
+        self._add_btn = make_button("Add to Set", ACCENT, ACCENT, width=100, margin=(0,0,0,0))
+        self._add_btn.Click += self._on_add_to_set
+        bottom.Children.Add(self._add_btn)
 
-        add_btn = make_button("Add to Set", ACCENT, ACCENT, width=100)
-        add_btn.Margin = Thickness(0, 0, 0, 0)
-        add_btn.Click += self._on_add_to_set
-        bottom.Children.Add(add_btn)
+        # Initialise labels now that all widgets exist
+        self._update_scan_ui()
 
         return outer
 
-    # ──────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
+    # New Sheets tab helpers
+    # -------------------------------------------------------------------------
+    def _update_scan_ui(self):
+        """Refresh the context label and Add button to reflect the loaded set."""
+        if self._editing_id is not None:
+            name = (self._name_box.Text or "").strip() if hasattr(self, "_name_box") else ""
+            if name:
+                self._scan_context_lbl.Text = (
+                    "Scan shows joinery sheets not yet in '{}'. "
+                    "Tick the ones to add, then click 'Add to Set'.".format(name))
+                self._add_to_set_lbl.Text = "Add checked sheets to '{}':".format(name)
+            else:
+                self._scan_context_lbl.Text = "Showing sheets missing from the selected print set."
+                self._add_to_set_lbl.Text   = "Add to loaded set:"
+            self._add_btn.IsEnabled = True
+        else:
+            self._scan_context_lbl.Text = (
+                "First load a set from 'Manage Sets', then press 'Scan Now' "
+                "to see which joinery sheets are missing from it.")
+            self._add_to_set_lbl.Text   = "No set loaded."
+            self._add_btn.IsEnabled     = False
+
+    # -------------------------------------------------------------------------
     # Sheet checklist helpers
-    # ──────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
     def _populate_sheet_checklist(self, checked_ids=None, highlight_ids=None):
-        """
-        Fill _sheet_panel with one CheckBox row per joinery sheet.
-        checked_ids   — set of ElementIds to pre-check (None = check all)
-        highlight_ids — set of ElementIds to highlight amber (not in this set)
-        """
         self._sheet_panel.Children.Clear()
         checked_ids   = checked_ids   or set()
         highlight_ids = highlight_ids or set()
@@ -689,56 +678,51 @@ class PrintSetManagerWindow(Window):
 
         checked_count = 0
         for info in self._data.joinery_sheets:
-            sid  = info["sheet_id"]
+            sid        = info["sheet_id"]
             is_checked = check_all or (sid in checked_ids)
             in_other   = sid in highlight_ids
 
-            # Row container
             row = StackPanel()
             row.Orientation = Orientation.Horizontal
             row.Margin      = Thickness(4, 2, 4, 2)
 
-            # Checkbox
             cb = CheckBox()
-            cb.IsChecked        = is_checked
+            cb.IsChecked         = is_checked
             cb.VerticalAlignment = VerticalAlignment.Center
-            cb.Margin           = Thickness(0, 0, 8, 0)
-            cb.Tag              = sid
-            cb.Checked         += self._on_sheet_checked
-            cb.Unchecked       += self._on_sheet_checked
+            cb.Margin            = Thickness(0, 0, 8, 0)
+            cb.Tag               = sid
+            cb.Checked          += self._on_sheet_checked
+            cb.Unchecked        += self._on_sheet_checked
             row.Children.Add(cb)
 
-            # Sheet number
             no_lbl = TextBlock()
-            no_lbl.Text       = info["sheet_no"]
-            no_lbl.Foreground = WARNING if in_other else TEXT
-            no_lbl.FontSize   = 11
-            no_lbl.Width      = 120
+            no_lbl.Text              = info["sheet_no"]
+            no_lbl.Foreground        = WARNING if in_other else TEXT
+            no_lbl.FontSize          = 11
+            no_lbl.Width             = 120
             no_lbl.VerticalAlignment = VerticalAlignment.Center
             row.Children.Add(no_lbl)
 
-            # Sheet title
             title_lbl = TextBlock()
-            title_lbl.Text       = info["title"]
-            title_lbl.Foreground = WARNING if in_other else MUTED
-            title_lbl.FontSize   = 11
+            title_lbl.Text              = info["title"]
+            title_lbl.Foreground        = WARNING if in_other else MUTED
+            title_lbl.FontSize          = 11
             title_lbl.VerticalAlignment = VerticalAlignment.Center
             row.Children.Add(title_lbl)
 
-            # "in set" badge
             set_names = self._data.set_map.get(sid, [])
             if set_names and not in_other:
                 badge = TextBlock()
-                badge.Text       = u"  \u2022 " + ", ".join(set_names)
-                badge.Foreground = SUCCESS
-                badge.FontSize   = 10
+                badge.Text              = u"  • " + ", ".join(set_names)
+                badge.Foreground        = SUCCESS
+                badge.FontSize          = 10
                 badge.VerticalAlignment = VerticalAlignment.Center
                 row.Children.Add(badge)
             elif in_other:
                 badge = TextBlock()
-                badge.Text       = u"  \u26A0 Not in this set"
-                badge.Foreground = WARNING
-                badge.FontSize   = 10
+                badge.Text              = u"  ⚠ Not in this set"
+                badge.Foreground        = WARNING
+                badge.FontSize          = 10
                 badge.VerticalAlignment = VerticalAlignment.Center
                 row.Children.Add(badge)
 
@@ -759,8 +743,7 @@ class PrintSetManagerWindow(Window):
                 and row.Children[0].IsChecked
             )
         total = len(self._data.joinery_sheets)
-        self._sheet_count_lbl.Text = "JOINERY SHEETS  —  {} of {} selected".format(
-            count, total)
+        self._sheet_count_lbl.Text = "JOINERY SHEETS  -  {} of {} selected".format(count, total)
 
     def _on_select_all(self, sender, e):
         for i in range(self._sheet_panel.Children.Count):
@@ -809,9 +792,9 @@ class PrintSetManagerWindow(Window):
                     ids.add(cb.Tag)
         return ids
 
-    # ──────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
     # Sets list helpers
-    # ──────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
     def _refresh_sets_list(self):
         self._sets_listbox.Items.Clear()
         for ps in self._data.print_sets:
@@ -824,54 +807,33 @@ class PrintSetManagerWindow(Window):
             sp.Orientation = Orientation.Horizontal
 
             name_lbl = TextBlock()
-            name_lbl.Text      = ps["name"]
-            name_lbl.FontSize  = 12
+            name_lbl.Text       = ps["name"]
+            name_lbl.FontSize   = 12
             name_lbl.Foreground = TEXT
             sp.Children.Add(name_lbl)
 
             count_lbl = TextBlock()
-            count_lbl.Text      = "  ({} sheets)".format(len(ps["sheet_ids"]))
-            count_lbl.FontSize  = 10
-            count_lbl.Foreground = MUTED
+            count_lbl.Text              = "  ({} sheets)".format(len(ps["sheet_ids"]))
+            count_lbl.FontSize          = 10
+            count_lbl.Foreground        = MUTED
             count_lbl.VerticalAlignment = VerticalAlignment.Center
             sp.Children.Add(count_lbl)
 
             item.Content = sp
             self._sets_listbox.Items.Add(item)
 
-    def _refresh_set_combo(self):
-        self._set_combo.Items.Clear()
-        for ps in self._data.print_sets:
-            ci = ComboBoxItem()
-            ci.Content    = ps["name"]
-            ci.Foreground = TEXT
-            ci.Background = BTN_BG
-            ci.Tag        = ps
-            self._set_combo.Items.Add(ci)
-        if self._set_combo.Items.Count > 0:
-            self._set_combo.SelectedIndex = 0
-
-    # ──────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
     # Manage Sets event handlers
-    # ──────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
     def _on_set_selected(self, sender, e):
         item = self._sets_listbox.SelectedItem
         if item is None:
             return
         ps = item.Tag
-        self._editing_id = ps["id"]
+        self._editing_id    = ps["id"]
         self._name_box.Text = ps["name"]
 
-        # Which sheet ids are in this set
-        in_set    = ps["sheet_ids"]
-        # Sheets in OTHER sets (not this one)
-        other_ids = set()
-        for other_ps in self._data.print_sets:
-            if other_ps["id"] == ps["id"]:
-                continue
-            other_ids.update(other_ps["sheet_ids"])
-
-        # Highlight: joinery sheets not in this set but also not in others
+        in_set         = ps["sheet_ids"]
         unassigned_ids = set(
             info["sheet_id"] for info in self._data.joinery_sheets
             if info["sheet_id"] not in in_set
@@ -881,15 +843,23 @@ class PrintSetManagerWindow(Window):
             checked_ids=in_set,
             highlight_ids=unassigned_ids
         )
-        self._set_status("Editing set: '{}'  ({} sheets)".format(
-            ps["name"], len(in_set)), BLUE)
+        self._set_status("Editing set: '{}'  ({} sheets)".format(ps["name"], len(in_set)), BLUE)
+
+        # Sync New Sheets tab
+        self._update_scan_ui()
+        self._scan_panel.Children.Clear()
+        self._scan_panel.Children.Add(make_label(
+            "Set loaded. Press 'Scan Now' to check for missing joinery sheets.",
+            MUTED, size=11, margin=(12,12,0,0)))
+        self._scan_done = False
 
     def _on_new_set(self, sender, e):
-        self._editing_id = None
+        self._editing_id    = None
         self._name_box.Text = ""
         self._sets_listbox.SelectedItem = None
-        self._populate_sheet_checklist()  # all checked, no highlights
-        self._set_status("New set — enter a name and select sheets.", MUTED)
+        self._populate_sheet_checklist()
+        self._set_status("New set - enter a name and select sheets.", MUTED)
+        self._update_scan_ui()
 
     def _on_save_set(self, sender, e):
         name = (self._name_box.Text or "").strip()
@@ -902,7 +872,6 @@ class PrintSetManagerWindow(Window):
             self._set_status("No sheets selected.", WARNING)
             return
 
-        # Check for name collision when creating new
         existing_names = {ps["name"]: ps for ps in self._data.print_sets}
         if self._editing_id is None and name in existing_names:
             res = MessageBox.Show(
@@ -925,10 +894,10 @@ class PrintSetManagerWindow(Window):
         if ok:
             self._data.refresh()
             self._refresh_sets_list()
-            self._refresh_set_combo()
             self._populate_sheet_checklist()
-            self._editing_id = None
+            self._editing_id    = None
             self._name_box.Text = ""
+            self._update_scan_ui()
             self._set_status(msg, SUCCESS)
         else:
             self._set_status(msg, ERROR)
@@ -948,45 +917,56 @@ class PrintSetManagerWindow(Window):
         if ok:
             self._data.refresh()
             self._refresh_sets_list()
-            self._refresh_set_combo()
             self._populate_sheet_checklist()
-            self._editing_id = None
+            self._editing_id    = None
             self._name_box.Text = ""
+            self._update_scan_ui()
             self._set_status(msg, SUCCESS)
         else:
             self._set_status(msg, ERROR)
 
-    # ──────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
     # New Sheets tab event handlers
-    # ──────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
     def _on_scan(self, sender, e):
+        if self._editing_id is None:
+            self._set_status("Load a set from 'Manage Sets' first, then scan.", WARNING)
+            return
+
         self._data.refresh()
         self._refresh_sets_list()
-        self._refresh_set_combo()
 
-        unassigned = [
+        target_ps = next(
+            (ps for ps in self._data.print_sets if ps["id"] == self._editing_id), None)
+        if target_ps is None:
+            self._set_status("The loaded set no longer exists.", ERROR)
+            return
+
+        set_name = target_ps["name"]
+        in_set   = target_ps["sheet_ids"]
+
+        missing = [
             info for info in self._data.joinery_sheets
-            if info["sheet_id"] not in self._data.set_map
+            if info["sheet_id"] not in in_set
         ]
 
         self._scan_panel.Children.Clear()
         self._scan_done = True
+        self._update_scan_ui()
 
-        if not unassigned:
-            self._scan_panel.Children.Add(
-                make_label(u"\u2713  All joinery sheets are assigned to a print set.",
-                           SUCCESS, size=12, margin=(12,12,0,0)))
-            self._set_status("Scan complete — no unassigned sheets found.", SUCCESS)
+        if not missing:
+            self._scan_panel.Children.Add(make_label(
+                u"✓  '{}' already contains all joinery sheets.".format(set_name),
+                SUCCESS, size=12, margin=(12,12,0,0)))
+            self._set_status("Scan complete - no missing sheets.", SUCCESS)
             return
 
-        # Header
-        hdr = make_label(
-            "{} unassigned joinery sheet{} found:".format(
-                len(unassigned), "s" if len(unassigned) != 1 else ""),
-            WARNING, size=11, margin=(8,8,0,6))
-        self._scan_panel.Children.Add(hdr)
+        self._scan_panel.Children.Add(make_label(
+            "{} joinery sheet{} not yet in '{}':".format(
+                len(missing), "s" if len(missing) != 1 else "", set_name),
+            WARNING, size=11, margin=(8,8,0,6)))
 
-        for info in unassigned:
+        for info in missing:
             row = StackPanel()
             row.Orientation = Orientation.Horizontal
             row.Margin      = Thickness(8, 2, 8, 2)
@@ -999,39 +979,41 @@ class PrintSetManagerWindow(Window):
             row.Children.Add(cb)
 
             no_lbl = TextBlock()
-            no_lbl.Text       = info["sheet_no"]
-            no_lbl.Foreground = WARNING
-            no_lbl.FontSize   = 11
-            no_lbl.Width      = 130
+            no_lbl.Text              = info["sheet_no"]
+            no_lbl.Foreground        = WARNING
+            no_lbl.FontSize          = 11
+            no_lbl.Width             = 130
             no_lbl.VerticalAlignment = VerticalAlignment.Center
             row.Children.Add(no_lbl)
 
             title_lbl = TextBlock()
-            title_lbl.Text       = info["title"]
-            title_lbl.Foreground = TEXT
-            title_lbl.FontSize   = 11
+            title_lbl.Text              = info["title"]
+            title_lbl.Foreground        = TEXT
+            title_lbl.FontSize          = 11
             title_lbl.VerticalAlignment = VerticalAlignment.Center
             row.Children.Add(title_lbl)
 
             self._scan_panel.Children.Add(row)
 
         self._set_status(
-            "Scan complete — {} unassigned sheet{} found.".format(
-                len(unassigned), "s" if len(unassigned) != 1 else ""),
+            "Scan complete - {} sheet{} missing from '{}'.".format(
+                len(missing), "s" if len(missing) != 1 else "", set_name),
             WARNING)
 
     def _on_add_to_set(self, sender, e):
         if not self._scan_done:
             self._set_status("Run 'Scan Now' first.", WARNING)
             return
-
-        sel = self._set_combo.SelectedItem
-        if sel is None:
-            self._set_status("No print set selected in the dropdown.", WARNING)
+        if self._editing_id is None:
+            self._set_status("No set loaded - go to Manage Sets first.", WARNING)
             return
-        target_ps = sel.Tag
 
-        # Collect checked sheet ids from scan panel
+        target_ps = next(
+            (ps for ps in self._data.print_sets if ps["id"] == self._editing_id), None)
+        if target_ps is None:
+            self._set_status("The loaded set no longer exists.", ERROR)
+            return
+
         new_ids = set()
         for i in range(self._scan_panel.Children.Count):
             row = self._scan_panel.Children[i]
@@ -1044,7 +1026,6 @@ class PrintSetManagerWindow(Window):
             self._set_status("No sheets checked to add.", WARNING)
             return
 
-        # Merge: existing sheets in the target set + new ones
         existing_sheet_elements = [
             self._data.all_sheets_map[no]
             for no, sheet in self._data.all_sheets_map.items()
@@ -1056,32 +1037,30 @@ class PrintSetManagerWindow(Window):
             if info["sheet_id"] in new_ids
             and info["sheet_no"] in self._data.all_sheets_map
         ]
-
         all_elements = list({s.Id: s for s in existing_sheet_elements + new_sheet_elements}.values())
 
-        ok, msg = save_print_set(target_ps["name"], all_elements, target_ps["id"])
+        ok, msg = save_print_set(target_ps["name"], all_elements, self._editing_id)
         if ok:
             self._data.refresh()
             self._refresh_sets_list()
-            self._refresh_set_combo()
             self._scan_panel.Children.Clear()
-            self._scan_panel.Children.Add(
-                make_label("Sheets added. Run 'Scan Now' again to recheck.",
-                           SUCCESS, size=11, margin=(12,12,0,0)))
+            self._scan_panel.Children.Add(make_label(
+                "Sheets added to '{}'. Press 'Scan Now' to recheck.".format(target_ps["name"]),
+                SUCCESS, size=11, margin=(12,12,0,0)))
             self._scan_done = False
             self._set_status(msg, SUCCESS)
         else:
             self._set_status(msg, ERROR)
 
-    # ──────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
     # Status bar
-    # ──────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
     def _set_status(self, msg, colour=None):
         self._status.Text       = msg
         self._status.Foreground = colour or MUTED
 
 
-# ── Entry point ────────────────────────────────────────────────────────────
+# -- Entry point --------------------------------------------------------------
 try:
     data = AppData()
 except Exception as ex:
