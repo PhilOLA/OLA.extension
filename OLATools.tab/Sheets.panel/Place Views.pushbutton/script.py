@@ -45,7 +45,7 @@ LAST_SHEET_NAME_KEY = "last_sheet_name"
 LAST_PLAN_TEMPLATE_KEY = "last_plan_template_name"
 LAST_ELEV_TEMPLATE_KEY = "last_elev_template_name"
 
-TOOL_VERSION = "1.0.7"
+TOOL_VERSION = "1.0.8"
 
 # ---- DEFAULTS (shown pre-filled in the dialog, editable there) ----
 GAP = 0.05  # feet between viewports in the grid (~0.6")
@@ -2244,6 +2244,9 @@ FORM_XAML = """
                 <ComboBox x:Name="cmb_elev_template"/>
             </StackPanel>
         </Grid>
+        <TextBlock Margin="0,5,0,0" TextWrapping="Wrap" FontSize="11" FontStyle="Italic"
+                   Foreground="#FFEF5350"
+                   Text="⚠ Selecting (none) leaves the existing template on already-placed views unchanged. Any other selection will re-apply that template — including during Maintenance runs."/>
 
         <StackPanel Grid.Row="8" Margin="0,10,0,0">
             <TextBlock Text="SHEET NAME (required - Revit's built-in Sheet Name, applied to every sheet in this batch)" Style="{StaticResource RequiredLabel}"/>
