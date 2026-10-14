@@ -45,7 +45,7 @@ LAST_SHEET_NAME_KEY = "last_sheet_name"
 LAST_PLAN_TEMPLATE_KEY = "last_plan_template_name"
 LAST_ELEV_TEMPLATE_KEY = "last_elev_template_name"
 
-TOOL_VERSION = "1.0.5"
+TOOL_VERSION = "1.0.6"
 
 # ---- DEFAULTS (shown pre-filled in the dialog, editable there) ----
 GAP = 0.05  # feet between viewports in the grid (~0.6")
@@ -2172,9 +2172,15 @@ FORM_XAML = """
             <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                 <CheckBox x:Name="chk_show_selected_only" Content="Show only selected"
                           Checked="chk_show_selected_only_changed" Unchecked="chk_show_selected_only_changed"/>
-                <CheckBox x:Name="chk_hide_placed" Content="Hide placed" Margin="16,0,0,0"
-                          Checked="chk_hide_placed_changed" Unchecked="chk_hide_placed_changed"/>
+                <!-- "Hide placed" in amber so it stands out as a filter warning -->
+                <CheckBox x:Name="chk_hide_placed" Margin="16,0,0,0"
+                          Checked="chk_hide_placed_changed" Unchecked="chk_hide_placed_changed">
+                    <CheckBox.Content>
+                        <TextBlock Text="Hide placed" Foreground="#FFFFB300" FontWeight="SemiBold"/>
+                    </CheckBox.Content>
+                </CheckBox>
             </StackPanel>
+            <!-- Row 1: select all / none by visibility -->
             <Grid Margin="0,6,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -2185,6 +2191,16 @@ FORM_XAML = """
                 <Button x:Name="btn_select_none" Grid.Column="1" Content="Select None (visible)" Click="btn_select_none_click" Style="{StaticResource SmallButton}"/>
                 <TextBlock Grid.Column="2" x:Name="txt_selection_count" Foreground="#FF9B9B9B" FontSize="11"
                            HorizontalAlignment="Right" VerticalAlignment="Center" Text="0 view(s) selected"/>
+            </Grid>
+            <!-- Row 2: select placed / unselect all -->
+            <Grid Margin="0,4,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="btn_select_placed" Grid.Column="0" Content="Select Placed" Click="btn_select_placed_click" Style="{StaticResource SmallButton}"/>
+                <Button x:Name="btn_unselect_all" Grid.Column="1" Content="Unselect All" Click="btn_unselect_all_click" Style="{StaticResource SmallButton}"/>
             </Grid>
             <!-- Placed summary -->
             <TextBlock x:Name="txt_placed_summary" Foreground="#FF4DB6AC" FontSize="11"
@@ -2761,6 +2777,20 @@ class PlaceViewsForm(forms.WPFWindow):
 
     def btn_select_none_click(self, sender, args):
         for item in list(self.lst_plan_views.ItemsSource):
+            item.IsChecked = False
+        self.refresh_plan_views_list(self.txt_filter.Text)
+
+    def btn_select_placed_click(self, sender, args):
+        """Tick every view (across ALL items, not just visible) that is already
+        on a sheet. Useful for reviewing or removing previously-placed views."""
+        for item in self.plan_view_items:
+            if item.SheetNumber:
+                item.IsChecked = True
+        self.refresh_plan_views_list(self.txt_filter.Text)
+
+    def btn_unselect_all_click(self, sender, args):
+        """Clear every tick across ALL items, not just the visible filtered set."""
+        for item in self.plan_view_items:
             item.IsChecked = False
         self.refresh_plan_views_list(self.txt_filter.Text)
 
