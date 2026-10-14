@@ -211,7 +211,19 @@ def copy_template_schedule(room_number):
     new_sched = doc.GetElement(new_id)
     if new_sched is None:
         return None, "Duplicate returned None."
-    new_sched.Name = SCHEDULE_PREFIX + room_number
+    # Two-pass rename: move to a guaranteed-unique temp name first (in case
+    # the target name is currently held by another element), then claim the
+    # real name.  Same technique as RLS Sheet Renumber two-pass workaround.
+    target   = SCHEDULE_PREFIX + room_number
+    tmp_name = '__RFS_NEW_{}__'.format(room_number)
+    try:
+        new_sched.Name = tmp_name
+    except Exception:
+        pass  # auto-name from Duplicate is already unique; safe to continue
+    try:
+        new_sched.Name = target
+    except Exception as ex:
+        return new_sched, "WARNING: could not set name '{}': {}".format(target, ex)
     if not set_schedule_filter_room_number(new_sched, room_number):
         return new_sched, "WARNING: could not set Room:Number filter."
     return new_sched, None
@@ -420,8 +432,20 @@ def op_check_fix(log_cb, progress_cb):
     total       = len(plan_sheets)
     log_cb("INFO", "Scanning {} RLS plan sheets + elevation sheets...".format(total))
 
+    # Collect all needed renames before touching anything.
+    # When plan views swap between sheets the required renames form pairs
+    # (e.g. N1-028 ↔ N1-029) that Revit blocks if applied one-at-a-time
+    # because each target name is still held by another schedule.
+    # The two-pass technique (same as RLS Sheet Renumber) avoids this:
+    #   Pass 1 — rename every schedule to a guaranteed-unique temp name
+    #   Pass 2 — rename every schedule to its real target name
+    pending_renames = []  # (sched, old_name, target_name, r, plan_num, found_num, room_num)
+    pending_filters = []  # (sched, room_num, old_fval, r, plan_num)
+
     with Transaction(doc, "RFS: Check & Fix") as t:
         t.Start()
+
+        # ── Detection loop: build pending lists, no renames yet ────────────
         for idx, plan_sheet in enumerate(plan_sheets):
             progress_cb(idx + 1, total)
             try:
@@ -474,30 +498,14 @@ def op_check_fix(log_cb, progress_cb):
                     log_cb("OK", "  {} [{}] — OK".format(plan_sheet.SheetNumber, room_num))
                 else:
                     if not name_ok:
-                        old = found_sched.Name
-                        try:
-                            found_sched.Name = expected
-                            r.ok("Renamed '{}' → '{}'".format(old, expected))
-                        except Exception as ex:
-                            r.err("Rename failed: {}".format(ex))
-                            log_cb("ERROR", "  {} — rename error: {}".format(
-                                plan_sheet.SheetNumber, ex))
-
+                        pending_renames.append((
+                            found_sched, found_sched.Name, expected,
+                            r, plan_sheet.SheetNumber, found_sheet.SheetNumber, room_num,
+                        ))
                     if not filter_ok:
-                        try:
-                            if set_schedule_filter_room_number(found_sched, room_num):
-                                r.ok("Filter '{}' → '{}'".format(fval, room_num))
-                            else:
-                                r.err("Failed to update Room:Number filter.")
-                                log_cb("ERROR", "  {} — filter update failed".format(
-                                    plan_sheet.SheetNumber))
-                        except Exception as ex:
-                            r.err("Filter update error: {}".format(ex))
-                            log_cb("ERROR", "  {} — filter error: {}".format(
-                                plan_sheet.SheetNumber, ex))
-
-                    log_cb("FIXED", "  {} [{}] — FIXED (on {})".format(
-                        plan_sheet.SheetNumber, room_num, found_sheet.SheetNumber))
+                        pending_filters.append((
+                            found_sched, room_num, fval, r, plan_sheet.SheetNumber,
+                        ))
 
                 results.append(r)
 
@@ -507,6 +515,48 @@ def op_check_fix(log_cb, progress_cb):
                 log_cb("ERROR", "  {} — unexpected error: {}".format(
                     plan_sheet.SheetNumber, ex))
                 results.append(r)
+
+        # ── Pass 1: rename all to guaranteed-unique temp names ─────────────
+        pass1_ok = []
+        for i, item in enumerate(pending_renames):
+            sched, old, target, r, plan_num, found_num, room_num = item
+            tmp = '__RFS_FIX_{}__'.format(i)
+            try:
+                sched.Name = tmp
+                pass1_ok.append(item)
+            except Exception as ex:
+                r.err("Rename (temp) failed: {}".format(ex))
+                log_cb("ERROR", "  {} — rename to temp failed: {}".format(plan_num, ex))
+
+        # ── Pass 2: rename from temp to the real target names ──────────────
+        for sched, old, target, r, plan_num, found_num, room_num in pass1_ok:
+            try:
+                sched.Name = target
+                r.ok("Renamed '{}' → '{}'".format(old, target))
+                log_cb("FIXED", "  {} [{}] — FIXED (on {})".format(
+                    plan_num, room_num, found_num))
+            except Exception as ex:
+                try:
+                    sched.Name = old  # restore original name on failure
+                except Exception:
+                    pass
+                r.err("Rename failed: {}".format(ex))
+                log_cb("ERROR", "  {} — rename error: {}".format(plan_num, ex))
+
+        # ── Fix filters ────────────────────────────────────────────────────
+        for sched, room_num, fval, r, plan_num in pending_filters:
+            try:
+                if set_schedule_filter_room_number(sched, room_num):
+                    r.ok("Filter '{}' → '{}'".format(fval, room_num))
+                    # Only log FIXED here if there was no rename (rename path logs it above)
+                    if not any(a.startswith("Renamed") for a in r.actions):
+                        log_cb("FIXED", "  {} [{}] — FIXED filter".format(plan_num, room_num))
+                else:
+                    r.err("Failed to update Room:Number filter.")
+                    log_cb("ERROR", "  {} — filter update failed".format(plan_num))
+            except Exception as ex:
+                r.err("Filter update error: {}".format(ex))
+                log_cb("ERROR", "  {} — filter error: {}".format(plan_num, ex))
 
         t.Commit()
 
