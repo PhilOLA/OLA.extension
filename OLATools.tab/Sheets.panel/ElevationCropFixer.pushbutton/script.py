@@ -105,7 +105,7 @@ logger = script.get_logger()
 
 XAML_PATH = os.path.join(os.path.dirname(__file__), "ui.xaml")
 
-TOOL_VERSION = "1.7.0"
+TOOL_VERSION = "1.7.1"
 
 # ---------------------------------------------------------------------------
 # Extensible storage - marks a view we have adjusted, so a later run can
@@ -811,8 +811,26 @@ def get_room_top_ceiling_z(room):
     allowed_level_ids = set(i for i in (room_level_id, next_level_id) if i is not None)
 
     if next_level is not None:
-        max_allowed_z = next_level.Elevation
-        cap_note = "next level above @ {:.2f}ft".format(next_level.Elevation)
+        # (v1.7.1 fix) Level.Elevation is in survey coordinates in this
+        # project, while room_bbox.Min/Max.Z are in project-internal
+        # coordinates.  Using next_level.Elevation directly as
+        # max_allowed_z compares values on completely different numeric
+        # scales (e.g. Level.Elevation ~5380 ft vs room base ~14 ft),
+        # which caused the height-band filter to admit ceilings from every
+        # floor in the building.  max(height_banded) then picked the
+        # topmost ceiling in the whole model, setting ceiling_top_z to
+        # thousands of feet, which pushed the crop's top off the page and
+        # squeezed all room content to the bottom of the elevation view.
+        # Fix: express the cap in the same coordinate system as the room
+        # bbox, using the same generous MAX_ROOM_HEIGHT_FT constant that
+        # was already the correct fallback for top-floor rooms.  The next-
+        # level's ID is still used for the Level-match filter (allowed_
+        # level_ids), which works fine - only the numeric elevation value
+        # was wrong.
+        max_allowed_z = room_bbox.Min.Z + MAX_ROOM_HEIGHT_FT
+        cap_note = "next level above (id {}) - cap {:.1f}ft above room base (survey elevation not used)".format(
+            next_level.Id.IntegerValue, MAX_ROOM_HEIGHT_FT
+        )
     else:
         max_allowed_z = room_bbox.Min.Z + MAX_ROOM_HEIGHT_FT
         cap_note = "no level found above room base - fallback cap {:.1f}ft above room base".format(
@@ -2804,6 +2822,26 @@ class CropFixerWindow(forms.WPFWindow):
         return [cb.Tag.room for cb in self.lstRooms.Items if cb.IsChecked]
 
     def on_run(self, sender, args):
+        # (v1.7.1) Clear all module-level caches at the start of every run.
+        # In IronPython/pyRevit, module globals persist for the lifetime of
+        # the Revit session: caches filled during a previous button press
+        # are still alive on the next press. That is normally fine for
+        # geometry that cannot change between presses (ceiling bounding
+        # boxes, level IDs), but it means a wrong result computed on one
+        # run - e.g. because of a data anomaly at startup - becomes
+        # permanently cached and corrupts every subsequent run. Clearing
+        # here makes each button press start fresh, restoring the
+        # correctness guarantees the original per-call code had while
+        # still benefiting from the within-run memoisation that the
+        # caches provide.
+        global _CEILINGS_CACHE, _CEILING_TOP_Z_CACHE, _LEVELS_CACHE
+        global _REF_PLAN_VIEWS_CACHE, _MARKER_LOCATION_CACHE
+        _CEILINGS_CACHE = None
+        _CEILING_TOP_Z_CACHE = {}
+        _LEVELS_CACHE = None
+        _REF_PLAN_VIEWS_CACHE = {}
+        _MARKER_LOCATION_CACHE = {}
+
         # (v1.6.0) If the user pre-selected an ElevationMarker in Revit
         # before clicking Run, sidestep the whole room-search heuristic
         # and just deep-dive that one marker: test its get_BoundingBox()
