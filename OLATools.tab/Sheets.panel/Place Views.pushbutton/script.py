@@ -45,7 +45,7 @@ LAST_SHEET_NAME_KEY = "last_sheet_name"
 LAST_PLAN_TEMPLATE_KEY = "last_plan_template_name"
 LAST_ELEV_TEMPLATE_KEY = "last_elev_template_name"
 
-TOOL_VERSION = "1.0.6"
+TOOL_VERSION = "1.0.7"
 
 # ---- DEFAULTS (shown pre-filled in the dialog, editable there) ----
 GAP = 0.05  # feet between viewports in the grid (~0.6")
@@ -2199,7 +2199,9 @@ FORM_XAML = """
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <Button x:Name="btn_select_placed" Grid.Column="0" Content="Select Placed" Click="btn_select_placed_click" Style="{StaticResource SmallButton}"/>
+                <Button x:Name="btn_select_placed" Grid.Column="0" Click="btn_select_placed_click" Style="{StaticResource SmallButton}">
+                    <TextBlock Text="Select Placed" Foreground="#FF4DB6AC"/>
+                </Button>
                 <Button x:Name="btn_unselect_all" Grid.Column="1" Content="Unselect All" Click="btn_unselect_all_click" Style="{StaticResource SmallButton}"/>
             </Grid>
             <!-- Placed summary -->
