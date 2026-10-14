@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Print Set Manager v1.0.0
+"""Print Set Manager v1.1.0
 Create and manage Revit print sets from joinery sheets.
 Tab 1 — Manage Sets: create/edit/delete ViewSheetSets.
 Tab 2 — New Sheets:  scan for joinery sheets not yet in any set.
@@ -42,7 +42,7 @@ from System.Windows.Controls.Primitives import DataGridColumnHeader
 from System.Windows.Media import SolidColorBrush, Color
 from System.Windows.Data import Binding
 
-VERSION = "v1.0.0"
+VERSION = "v1.1.0"
 
 doc = __revit__.ActiveUIDocument.Document
 
@@ -193,6 +193,31 @@ def get_all_sheets_map():
     return result
 
 
+def get_sheet_full_title(sheet):
+    """
+    Build full display title from Sheet Name + OLA Sheet Title 2 + OLA Sheet Title 3.
+    Falls back gracefully if custom params are absent.
+    """
+    parts = []
+    try:
+        p = sheet.get_Parameter(BuiltInParameter.SHEET_NAME)
+        v = (p.AsString() or "").strip() if p else ""
+        if v:
+            parts.append(v)
+    except Exception:
+        pass
+    for param_name in ("OLA Sheet Title 2", "OLA Sheet Title 3"):
+        try:
+            p = sheet.LookupParameter(param_name)
+            if p and p.HasValue:
+                v = (p.AsString() or "").strip()
+                if v:
+                    parts.append(v)
+        except Exception:
+            pass
+    return u"  —  ".join(parts) if parts else ""
+
+
 def expand_series(bases, all_sheets_map):
     """
     Given a set of base numbers, return sorted list of SheetInfo dicts
@@ -206,11 +231,7 @@ def expand_series(bases, all_sheets_map):
         base = sheet_no.rsplit("-", 1)[0]
         if base not in bases:
             continue
-        try:
-            tp = sheet.get_Parameter(BuiltInParameter.SHEET_NAME)
-            title = (tp.AsString() or "").strip() if tp else ""
-        except Exception:
-            title = ""
+        title = get_sheet_full_title(sheet)
         results.append({
             "sheet_no": sheet_no,
             "title":    title,
@@ -417,18 +438,24 @@ class PrintSetManagerWindow(Window):
         Grid.SetRow(tabs, 1)
         root.Children.Add(tabs)
 
+        # Tab headers use a TextBlock so we control foreground explicitly
+        def make_tab_header(text):
+            tb = TextBlock()
+            tb.Text       = text
+            tb.Foreground = DARK
+            tb.FontSize   = 11
+            tb.FontWeight = FontWeights.SemiBold
+            tb.Padding    = Thickness(4, 2, 4, 2)
+            return tb
+
         tab1 = TabItem()
-        tab1.Header     = "  Manage Sets  "
-        tab1.Foreground = TEXT
-        tab1.Background = BTN_BG
-        tab1.Content    = self._build_manage_tab()
+        tab1.Header  = make_tab_header("  Manage Sets  ")
+        tab1.Content = self._build_manage_tab()
         tabs.Items.Add(tab1)
 
         tab2 = TabItem()
-        tab2.Header     = "  New Sheets  "
-        tab2.Foreground = TEXT
-        tab2.Background = BTN_BG
-        tab2.Content    = self._build_newsheets_tab()
+        tab2.Header  = make_tab_header("  New Sheets  ")
+        tab2.Content = self._build_newsheets_tab()
         tabs.Items.Add(tab2)
 
         # ── Status bar ─────────────────────────────────────────────────────
