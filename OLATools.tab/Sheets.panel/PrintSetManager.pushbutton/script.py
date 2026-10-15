@@ -725,13 +725,9 @@ class PrintSetManagerWindow(Window):
             is_checked = check_all or (sid in checked_ids)
             in_other   = sid in highlight_ids
 
-            # Filter: prefix-match on sheet number, OR substring match on title only
-            # (sheet number is prefix-matched so "80" won't match "8559" via a title room code)
-            if filt:
-                no_match    = info["sheet_no"].lower().startswith(filt)
-                title_match = filt in info["title"].lower()
-                if not no_match and not title_match:
-                    continue
+            # Filter: prefix-match on sheet number only
+            if filt and not info["sheet_no"].lower().startswith(filt):
+                continue
 
             row = StackPanel()
             row.Orientation = Orientation.Horizontal
@@ -852,7 +848,6 @@ class PrintSetManagerWindow(Window):
             hidden_ids = set(
                 info["sheet_id"] for info in self._data.joinery_sheets
                 if not info["sheet_no"].lower().startswith(filt)
-                and filt not in info["title"].lower()
             )
         else:
             hidden_ids = set()
@@ -904,7 +899,7 @@ class PrintSetManagerWindow(Window):
             title_lbl = row.Children[2] if row.Children.Count > 2 else None
             sheet_no  = no_lbl.Text    if no_lbl    else ""
             title     = title_lbl.Text if title_lbl else ""
-            if filt and not sheet_no.lower().startswith(filt) and filt not in title.lower():
+            if filt and not sheet_no.lower().startswith(filt):
                 row.Visibility = Visibility.Collapsed
             else:
                 row.Visibility = Visibility.Visible
