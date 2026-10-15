@@ -45,7 +45,7 @@ LAST_SHEET_NAME_KEY = "last_sheet_name"
 LAST_PLAN_TEMPLATE_KEY = "last_plan_template_name"
 LAST_ELEV_TEMPLATE_KEY = "last_elev_template_name"
 
-TOOL_VERSION = "1.0.14"
+TOOL_VERSION = "1.0.15"
 
 # ---- DEFAULTS (shown pre-filled in the dialog, editable there) ----
 GAP = 0.05  # feet between viewports in the grid (~0.6")
@@ -2532,12 +2532,15 @@ class PlaceViewsForm(forms.WPFWindow):
             stripped_plan_names = [n.strip() for n in plan_tmpl_names]
             self.cmb_plan_template.ItemsSource = plan_tmpl_names
 
-            # Elevation templates: ViewSection class + Elevation ViewType only.
-            # Interior elevations are ViewSection in the Revit API; filtering
-            # by ViewType.Elevation excludes Section and Detail templates.
-            _ELEV_VIEW_TYPES = (DB.ViewType.Elevation,)
+            # Elevation templates: ViewSection class only.
+            # OfClass(DB.ViewSection) covers Elevation, Section and Detail
+            # views. ViewType.Elevation filtering was too restrictive —
+            # elevation templates in some projects carry ViewType=Section,
+            # causing them to be silently excluded.  Class-only is the
+            # safest approach; plan templates are already separated by using
+            # DB.ViewPlan above, so cross-contamination is not possible.
             self.elev_view_templates = get_selectable_view_templates(
-                view_classes=(DB.ViewSection,), view_types=_ELEV_VIEW_TYPES)
+                view_classes=(DB.ViewSection,))
             elev_tmpl_names = ["(none)"] + [t.Name for t in self.elev_view_templates]
             stripped_elev_names = [n.strip() for n in elev_tmpl_names]
             self.cmb_elev_template.ItemsSource = elev_tmpl_names
