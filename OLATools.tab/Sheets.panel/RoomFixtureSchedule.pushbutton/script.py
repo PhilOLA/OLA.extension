@@ -786,7 +786,8 @@ class RoomFixtureScheduleDialog(Window):
         self._log_lines  = []
         self._room_items = []   # list of (CheckBox, ViewSheet)
         self._build_ui()
-        self._build_room_list()
+        # Defer room list population to Loaded so the window appears immediately
+        self.Loaded += self._on_loaded
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -964,21 +965,47 @@ class RoomFixtureScheduleDialog(Window):
 
     # ── Room list ─────────────────────────────────────────────────────────────
 
+    def _on_loaded(self, sender, args):
+        """Called once the window is visible \xe2\x80\x94 populate list without blocking open."""
+        self.lbl_room_count.Text = u"Loading\u2026"
+        self.room_list.UpdateLayout()
+        self._build_room_list()
+
     def _build_room_list(self):
-        """Populate the room CheckBox list from plan sheets in the model."""
+        """Populate the room CheckBox list \xe2\x80\x94 single batched viewport collector."""
         self.room_list.Items.Clear()
         self._room_items = []
         try:
             plan_sheets = get_all_rls_plan_sheets()
         except Exception:
             plan_sheets = []
+
+        # One collector call for ALL viewports, grouped by SheetId \xe2\x80\x94 avoids
+        # an OwnedByView call per sheet which made opening very slow.
+        plan_types = [DB.ViewType.FloorPlan, DB.ViewType.CeilingPlan, DB.ViewType.AreaPlan]
+        vp_by_sheet = {}
+        try:
+            for vp in FilteredElementCollector(doc).OfClass(DB.Viewport).ToElements():
+                sid = vp.SheetId
+                if sid not in vp_by_sheet:
+                    vp_by_sheet[sid] = []
+                vp_by_sheet[sid].append(vp)
+        except Exception:
+            pass
+
         for sheet in plan_sheets:
             try:
-                plan_view = get_plan_view_on_sheet(sheet)
+                candidates = []
+                for vp in vp_by_sheet.get(sheet.Id, []):
+                    view = doc.GetElement(vp.ViewId)
+                    if view and view.ViewType in plan_types:
+                        candidates.append(view)
+                prefer    = [v for v in candidates if v.Name.upper().endswith("PLAN")]
+                plan_view = prefer[0] if prefer else (candidates[0] if candidates else None)
                 room_num  = parse_room_number_from_view(plan_view) or "?"
             except Exception:
                 room_num = "?"
-            # Display: "N2-080 — BN 6701-0"
+            # Display: "N2-080 \xe2\x80\x94 BN 6701-0"
             label = u"{} \u2014 {}".format(room_num, sheet.SheetNumber)
             cb = CheckBox()
             cb.Content    = label
