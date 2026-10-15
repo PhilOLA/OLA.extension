@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Print Set Manager v1.4.0
+"""Print Set Manager v1.5.0
 Create and manage Revit print sets from joinery sheets.
 Tab 1 -- Manage Sets: create/edit/delete ViewSheetSets.
 Tab 2 -- New Sheets:  independent scan -- pick a set, see missing sheets, add them.
+Both tabs have a live filter box: type a sheet number prefix (e.g. 84) to narrow the
+list, then Select All grabs only the matching visible rows.
 """
 __title__  = "Print Set\nManager"
 __author__ = "OLA"
@@ -43,7 +45,7 @@ from System.Windows.Controls.Primitives import DataGridColumnHeader
 from System.Windows.Media import SolidColorBrush, Color
 from System.Windows.Data import Binding
 
-VERSION = "v1.4.0"
+VERSION = "v1.5.0"
 
 doc = __revit__.ActiveUIDocument.Document
 
@@ -522,6 +524,24 @@ class PrintSetManagerWindow(Window):
         self._sheet_count_lbl.VerticalAlignment = VerticalAlignment.Center
         top_bar.Children.Add(self._sheet_count_lbl)
 
+        self._manage_filter = TextBox()
+        self._manage_filter.Background      = DARK
+        self._manage_filter.Foreground      = TEXT
+        self._manage_filter.BorderBrush     = LINE
+        self._manage_filter.BorderThickness = Thickness(1)
+        self._manage_filter.Padding         = Thickness(4, 1, 4, 1)
+        self._manage_filter.FontSize        = 11
+        self._manage_filter.Width           = 140
+        self._manage_filter.Height          = 22
+        self._manage_filter.Margin          = Thickness(12, 0, 0, 0)
+        self._manage_filter.ToolTip         = "Filter by sheet number or title"
+        self._manage_filter.TextChanged    += self._on_manage_filter_changed
+        top_bar.Children.Add(self._manage_filter)
+
+        filter_hint = make_label("filter sheets...", MUTED, size=10, margin=(0,0,0,0))
+        # overlay hint is simpler as a watermark-style placeholder via tag
+        # (we'll hide it on TextChanged)
+
         sel_all_btn = make_button("Select All", MUTED, LINE, width=80, height=22, margin=(8,0,0,0))
         sel_all_btn.FontSize = 10
         sel_all_btn.Click   += self._on_select_all
@@ -634,7 +654,21 @@ class PrintSetManagerWindow(Window):
         scan_btn.Click += self._on_scan
         ctrl_row.Children.Add(scan_btn)
 
-        sel_all_btn2 = make_button("Select All", MUTED, LINE, width=80, height=22, margin=(12,0,0,0))
+        self._scan_filter = TextBox()
+        self._scan_filter.Background      = DARK
+        self._scan_filter.Foreground      = TEXT
+        self._scan_filter.BorderBrush     = LINE
+        self._scan_filter.BorderThickness = Thickness(1)
+        self._scan_filter.Padding         = Thickness(4, 1, 4, 1)
+        self._scan_filter.FontSize        = 11
+        self._scan_filter.Width           = 140
+        self._scan_filter.Height          = 22
+        self._scan_filter.Margin          = Thickness(12, 0, 0, 0)
+        self._scan_filter.ToolTip         = "Filter by sheet number or title"
+        self._scan_filter.TextChanged    += self._on_scan_filter_changed
+        ctrl_row.Children.Add(self._scan_filter)
+
+        sel_all_btn2 = make_button("Select All", MUTED, LINE, width=80, height=22, margin=(8,0,0,0))
         sel_all_btn2.FontSize = 10
         sel_all_btn2.Click   += self._on_scan_select_all
         ctrl_row.Children.Add(sel_all_btn2)
@@ -684,10 +718,16 @@ class PrintSetManagerWindow(Window):
         check_all     = (checked_ids == set())
 
         checked_count = 0
+        filt = (self._manage_filter.Text or "").strip().lower() if hasattr(self, "_manage_filter") else ""
+
         for info in self._data.joinery_sheets:
             sid        = info["sheet_id"]
             is_checked = check_all or (sid in checked_ids)
             in_other   = sid in highlight_ids
+
+            # Filter: hide rows that don't match sheet number or title
+            if filt and filt not in info["sheet_no"].lower() and filt not in info["title"].lower():
+                continue
 
             row = StackPanel()
             row.Orientation = Orientation.Horizontal
@@ -749,10 +789,16 @@ class PrintSetManagerWindow(Window):
                 and isinstance(row.Children[0], CheckBox)
                 and row.Children[0].IsChecked
             )
-        total = len(self._data.joinery_sheets)
-        self._sheet_count_lbl.Text = "JOINERY SHEETS  -  {} of {} selected".format(count, total)
+        visible = self._sheet_panel.Children.Count
+        total   = len(self._data.joinery_sheets)
+        if visible < total:
+            self._sheet_count_lbl.Text = "JOINERY SHEETS  -  {} of {} selected  ({} shown)".format(
+                count, total, visible)
+        else:
+            self._sheet_count_lbl.Text = "JOINERY SHEETS  -  {} of {} selected".format(count, total)
 
     def _on_select_all(self, sender, e):
+        # Only affects visible (filtered) rows -- hidden rows keep their state
         for i in range(self._sheet_panel.Children.Count):
             row = self._sheet_panel.Children[i]
             if isinstance(row, StackPanel) and row.Children.Count > 0:
@@ -762,6 +808,7 @@ class PrintSetManagerWindow(Window):
         self._update_sheet_count()
 
     def _on_deselect_all(self, sender, e):
+        # Only affects visible (filtered) rows -- hidden rows keep their state
         for i in range(self._sheet_panel.Children.Count):
             row = self._sheet_panel.Children[i]
             if isinstance(row, StackPanel) and row.Children.Count > 0:
@@ -773,7 +820,8 @@ class PrintSetManagerWindow(Window):
     def _on_scan_select_all(self, sender, e):
         for i in range(self._scan_panel.Children.Count):
             row = self._scan_panel.Children[i]
-            if isinstance(row, StackPanel) and row.Children.Count > 0:
+            if isinstance(row, StackPanel) and row.Children.Count > 0 \
+                    and row.Visibility == Visibility.Visible:
                 cb = row.Children[0]
                 if isinstance(cb, CheckBox):
                     cb.IsChecked = True
@@ -781,13 +829,80 @@ class PrintSetManagerWindow(Window):
     def _on_scan_deselect_all(self, sender, e):
         for i in range(self._scan_panel.Children.Count):
             row = self._scan_panel.Children[i]
-            if isinstance(row, StackPanel) and row.Children.Count > 0:
+            if isinstance(row, StackPanel) and row.Children.Count > 0 \
+                    and row.Visibility == Visibility.Visible:
                 cb = row.Children[0]
                 if isinstance(cb, CheckBox):
                     cb.IsChecked = False
 
     def _on_sheet_checked(self, sender, e):
         self._update_sheet_count()
+
+    def _on_manage_filter_changed(self, sender, e):
+        """Re-render the checklist respecting current filter text."""
+        # Preserve current check states before re-rendering
+        checked = self._get_checked_sheet_ids()
+        # Also collect ids that are NOT shown (hidden by filter) to preserve their state
+        filt = (self._manage_filter.Text or "").strip().lower()
+        if filt:
+            hidden_ids = set(
+                info["sheet_id"] for info in self._data.joinery_sheets
+                if filt not in info["sheet_no"].lower() and filt not in info["title"].lower()
+            )
+        else:
+            hidden_ids = set()
+        # Merge: visible checked + previously hidden checked
+        if not checked and not hidden_ids:
+            # All were checked (check_all mode) -- keep that
+            self._populate_sheet_checklist(
+                checked_ids=set(),
+                highlight_ids=self._current_highlight_ids()
+            )
+        else:
+            all_checked = checked | (self._get_all_checked_ids_including_hidden())
+            self._populate_sheet_checklist(
+                checked_ids=all_checked,
+                highlight_ids=self._current_highlight_ids()
+            )
+
+    def _current_highlight_ids(self):
+        """Return the current unassigned highlight set (sheets not in loaded set)."""
+        if self._editing_id is None:
+            return set()
+        ps = next((p for p in self._data.print_sets if p["id"] == self._editing_id), None)
+        if ps is None:
+            return set()
+        in_set = ps["sheet_ids"]
+        return set(info["sheet_id"] for info in self._data.joinery_sheets
+                   if info["sheet_id"] not in in_set)
+
+    def _get_all_checked_ids_including_hidden(self):
+        """Return checked ids from visible rows only (hidden rows not present in panel)."""
+        return self._get_checked_sheet_ids()
+
+    def _on_scan_filter_changed(self, sender, e):
+        """Re-render scan results respecting filter text."""
+        self._apply_scan_filter()
+
+    def _apply_scan_filter(self):
+        """Show/hide scan result rows based on filter text."""
+        filt = (self._scan_filter.Text or "").strip().lower() if hasattr(self, "_scan_filter") else ""
+        for i in range(self._scan_panel.Children.Count):
+            row = self._scan_panel.Children[i]
+            if not isinstance(row, StackPanel) or row.Children.Count < 2:
+                continue
+            cb = row.Children[0]
+            if not isinstance(cb, CheckBox):
+                continue
+            # second child is the sheet number label
+            no_lbl    = row.Children[1] if row.Children.Count > 1 else None
+            title_lbl = row.Children[2] if row.Children.Count > 2 else None
+            sheet_no  = no_lbl.Text    if no_lbl    else ""
+            title     = title_lbl.Text if title_lbl else ""
+            if filt and filt not in sheet_no.lower() and filt not in title.lower():
+                row.Visibility = Visibility.Collapsed
+            else:
+                row.Visibility = Visibility.Visible
 
     def _get_checked_sheet_ids(self):
         ids = set()
@@ -1063,6 +1178,8 @@ class PrintSetManagerWindow(Window):
             len(missing), "s" if len(missing) != 1 else "")
         self._scan_add_lbl.Text  = "Add checked sheets to '{}':".format(set_name)
         self._add_btn.IsEnabled  = True
+        # Apply any existing filter text to new results
+        self._apply_scan_filter()
         self._set_status(
             "Scan complete - {} sheet{} missing from '{}'.".format(
                 len(missing), "s" if len(missing) != 1 else "", set_name),
