@@ -121,6 +121,25 @@ def set_sheet_status(sheet, value):
     except Exception:
         pass
 
+
+def get_current_rev_label(sheet, doc):
+    """Return a short label for the sheet's current revision, e.g. 'Rev 3 — IFC'."""
+    try:
+        cur_id = sheet.GetCurrentRevision()
+        if cur_id == ElementId.InvalidElementId:
+            return u""
+        rev = doc.GetElement(cur_id)
+        if rev is None:
+            return u""
+        try:
+            num = rev.RevisionNumber or str(rev.SequenceNumber)
+        except Exception:
+            num = str(rev.SequenceNumber)
+        desc = rev.Description or u""
+        return u"Rev {0}{1}".format(num, u" — " + desc if desc else u"")
+    except Exception:
+        return u""
+
 # ---------------------------------------------------------------------------
 # Data helpers
 # ---------------------------------------------------------------------------
@@ -786,6 +805,13 @@ class RevisionManagerWindow(Window):
             txt.Foreground = TEXT
             txt.VerticalAlignment = VerticalAlignment.Center
 
+            cur_rev = get_current_rev_label(sheet, self._doc)
+            rev_tag = TextBlock()
+            rev_tag.Text = u"  \u25b8 {0}".format(cur_rev) if cur_rev else u""
+            rev_tag.Foreground = INFO
+            rev_tag.FontSize = 10
+            rev_tag.VerticalAlignment = VerticalAlignment.Center
+
             status_val = get_sheet_status(sheet)
             status_tag = TextBlock()
             status_tag.Text = u"  [{0}]".format(status_val) if status_val else u""
@@ -795,6 +821,7 @@ class RevisionManagerWindow(Window):
 
             row.Children.Add(dot)
             row.Children.Add(txt)
+            row.Children.Add(rev_tag)
             row.Children.Add(status_tag)
             item.Content = row
 
