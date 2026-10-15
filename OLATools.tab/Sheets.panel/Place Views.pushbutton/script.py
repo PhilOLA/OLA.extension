@@ -24,6 +24,7 @@ clr.AddReference("System.Windows.Forms")
 import System
 from System.Windows.Forms import FolderBrowserDialog, DialogResult
 from System.Windows import Visibility
+from System.Windows.Threading import DispatcherPriority
 
 doc = revit.doc
 output = script.get_output()
@@ -45,7 +46,7 @@ LAST_SHEET_NAME_KEY = "last_sheet_name"
 LAST_PLAN_TEMPLATE_KEY = "last_plan_template_name"
 LAST_ELEV_TEMPLATE_KEY = "last_elev_template_name"
 
-TOOL_VERSION = "1.0.15"
+TOOL_VERSION = "1.0.17"
 
 # ---- DEFAULTS (shown pre-filled in the dialog, editable there) ----
 GAP = 0.05  # feet between viewports in the grid (~0.6")
@@ -2209,7 +2210,7 @@ FORM_XAML = """
                 </Grid.ColumnDefinitions>
                 <Button x:Name="btn_select_all" Grid.Column="0" Content="Select All (visible)" Click="btn_select_all_click" Style="{StaticResource SmallButton}"/>
                 <Button x:Name="btn_select_none" Grid.Column="1" Content="Select None (visible)" Click="btn_select_none_click" Style="{StaticResource SmallButton}"/>
-                <TextBlock Grid.Column="2" x:Name="txt_selection_count" Foreground="#FF9B9B9B" FontSize="11"
+                <TextBlock Grid.Column="2" x:Name="txt_selection_count" Foreground="#FF4DB6AC" FontSize="11"
                            HorizontalAlignment="Right" VerticalAlignment="Center" Text="0 view(s) selected"/>
             </Grid>
             <!-- Row 2: select placed / unselect all -->
@@ -2743,12 +2744,18 @@ class PlaceViewsForm(forms.WPFWindow):
 
     def lst_plan_views_mouse_up(self, sender, args):
         # Checkbox clicks bubble up to the ListBox; recompute count afterward.
-        # When only showing selected views, unticking one should drop it
-        # from view immediately, so re-filter rather than just recounting.
+        # IMPORTANT: PreviewMouseUp fires BEFORE WPF's TwoWay binding commits
+        # the new IsChecked value to SelectableItem, so reading the count here
+        # gives the old state (off-by-one).  Deferring via BeginInvoke at
+        # Background priority lets all pending bindings settle first.
         if bool(self.chk_show_selected_only.IsChecked):
-            self.refresh_plan_views_list(self.txt_filter.Text)
+            self.Dispatcher.BeginInvoke(
+                DispatcherPriority.Background,
+                System.Action(lambda: self.refresh_plan_views_list(self.txt_filter.Text)))
         else:
-            self.update_selection_count()
+            self.Dispatcher.BeginInvoke(
+                DispatcherPriority.Background,
+                System.Action(lambda: self.update_selection_count()))
 
     def _template_list_for(self, cmb):
         """Return the correct backing template list for a given ComboBox."""
