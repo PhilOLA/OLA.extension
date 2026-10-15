@@ -45,7 +45,7 @@ LAST_SHEET_NAME_KEY = "last_sheet_name"
 LAST_PLAN_TEMPLATE_KEY = "last_plan_template_name"
 LAST_ELEV_TEMPLATE_KEY = "last_elev_template_name"
 
-TOOL_VERSION = "1.0.13"
+TOOL_VERSION = "1.0.14"
 
 # ---- DEFAULTS (shown pre-filled in the dialog, editable there) ----
 GAP = 0.05  # feet between viewports in the grid (~0.6")
@@ -603,6 +603,11 @@ def get_selectable_view_templates(view_classes=None, view_types=None):
     """
     if view_classes is None:
         view_classes = (DB.ViewPlan, DB.ViewSection, DB.View3D)
+    # Pre-compute as a set of ints so .NET enum comparison is unambiguous in
+    # IronPython (tuple `in` with .NET enums can silently mismatch).
+    view_type_ints = (
+        set(int(vt) for vt in view_types) if view_types is not None else None
+    )
     templates = []
     for cls in view_classes:
         try:
@@ -610,8 +615,12 @@ def get_selectable_view_templates(view_classes=None, view_types=None):
             for v in views:
                 if not v.IsTemplate:
                     continue
-                if view_types is not None and v.ViewType not in view_types:
-                    continue
+                if view_type_ints is not None:
+                    try:
+                        if int(v.ViewType) not in view_type_ints:
+                            continue
+                    except Exception:
+                        pass  # if ViewType unreadable, include the template
                 templates.append(v)
         except Exception:
             pass
@@ -2513,15 +2522,12 @@ class PlaceViewsForm(forms.WPFWindow):
         try:
             self.txt_loading_status.Text = "Loading view templates…"
 
-            # Plan templates: ViewPlan class + floor/ceiling/area/engineering plan types only
-            _PLAN_VIEW_TYPES = (
-                DB.ViewType.FloorPlan,
-                DB.ViewType.CeilingPlan,
-                DB.ViewType.AreaPlan,
-                DB.ViewType.EngineeringPlan,
-            )
+            # Plan templates: ViewPlan class is sufficient — OfClass(DB.ViewPlan)
+            # only ever returns floor/ceiling/area/engineering plan views, so no
+            # additional ViewType filter is needed (and avoids IronPython enum
+            # comparison issues that were silently dropping valid templates).
             self.plan_view_templates = get_selectable_view_templates(
-                view_classes=(DB.ViewPlan,), view_types=_PLAN_VIEW_TYPES)
+                view_classes=(DB.ViewPlan,))
             plan_tmpl_names = ["(none)"] + [t.Name for t in self.plan_view_templates]
             stripped_plan_names = [n.strip() for n in plan_tmpl_names]
             self.cmb_plan_template.ItemsSource = plan_tmpl_names
