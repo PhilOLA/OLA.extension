@@ -348,16 +348,20 @@ def build_plan(groups, scope=None, flt=None, t2_param=None, staging_prefix=''):
                     r.status = 'OUT OF RANGE'
                 continue
 
+            has_suffixed = False
             for r in room_sheets:
                 if r.suffix is None:
-                    # Original had no dash-suffix → preserve that in the new number
-                    new = '{}{}{}'.format(r.prefix, staging_prefix, cur_base)
-                else:
-                    new = '{}{}{}-{}'.format(r.prefix, staging_prefix, cur_base, r.suffix)
+                    # No -0/-1/-2/-3 suffix → exclude from renumbering entirely
+                    r.new_num = r.cur_num
+                    r.status  = 'UNCHANGED'
+                    continue
+                new = '{}{}{}-{}'.format(r.prefix, staging_prefix, cur_base, r.suffix)
                 r.new_num = new
                 r.status  = 'CHANGED' if new != r.cur_num else 'UNCHANGED'
+                has_suffixed = True
 
-            cur_base += 1
+            if has_suffixed:
+                cur_base += 1
 
     # ── Mark intra-batch duplicate targets so the preview flags them visually ──
     from collections import Counter
