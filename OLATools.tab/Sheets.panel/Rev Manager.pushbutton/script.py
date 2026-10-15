@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Revision Manager  v1.1.0
+Revision Manager  v1.2.0
 pyRevit IronPython pushbutton tool
 Create, apply, and remove revisions on selected sheets.
+Optionally set OLA Sheet Status shared parameter on apply.
 """
 
 import clr
@@ -83,7 +84,42 @@ WHITE    = hex_brush("#FFFFFF")
 BTN_BG   = hex_brush("#2D2D2D")
 SELECTED = hex_brush("#1E2A38")
 
-VERSION  = u"v1.1.0"
+VERSION  = u"v1.2.0"
+
+# ---------------------------------------------------------------------------
+# Drawing Status options
+# ---------------------------------------------------------------------------
+
+STATUS_PARAM   = u"OLA Sheet Status"
+STATUS_OPTIONS = [
+    u"(no change)",
+    u"PRELIMINARY",
+    u"FOR CONSTRUCTION",
+    u"FOR PRICING",
+    u"FOR INFORMATION",
+]
+
+
+def get_sheet_status(sheet):
+    """Return the current OLA Sheet Status string, or '' if not set."""
+    try:
+        p = sheet.LookupParameter(STATUS_PARAM)
+        if p is None:
+            return u""
+        v = p.AsString()
+        return v if v else u""
+    except Exception:
+        return u""
+
+
+def set_sheet_status(sheet, value):
+    """Set OLA Sheet Status on sheet. Must be called inside a Transaction."""
+    try:
+        p = sheet.LookupParameter(STATUS_PARAM)
+        if p is not None and not p.IsReadOnly:
+            p.Set(value)
+    except Exception:
+        pass
 
 # ---------------------------------------------------------------------------
 # Data helpers
@@ -468,6 +504,39 @@ class RevisionManagerWindow(Window):
 
         panel.Children.Add(self._spacer(10))
 
+        # --- Drawing Status section ---
+        status_group = _GroupBox(u"Drawing Status", ACCENT)
+        status_inner = StackPanel()
+        status_inner.Margin = Thickness(0)
+
+        status_lbl = self._label(u"Set status on apply:")
+        status_lbl.Margin = Thickness(0, 0, 0, 4)
+        status_inner.Children.Add(status_lbl)
+
+        self._status_combo = ComboBox()
+        self._status_combo.Background = BTN_BG
+        self._status_combo.Foreground = hex_brush("#1A1A1A")
+        self._status_combo.Margin = Thickness(0, 0, 0, 4)
+        for opt in STATUS_OPTIONS:
+            cbi = ComboBoxItem()
+            cbi.Content = opt
+            cbi.Foreground = hex_brush("#1A1A1A")
+            self._status_combo.Items.Add(cbi)
+        self._status_combo.SelectedIndex = 0
+        status_inner.Children.Add(self._status_combo)
+
+        hint = TextBlock()
+        hint.Text = u"Status is applied to all selected sheets alongside the revision."
+        hint.Foreground = MUTED
+        hint.FontSize = 10
+        hint.TextWrapping = System.Windows.TextWrapping.Wrap
+        status_inner.Children.Add(hint)
+
+        status_group._set_content(status_inner)
+        panel.Children.Add(status_group.panel)
+
+        panel.Children.Add(self._spacer(10))
+
         # --- Create New Revision section ---
         new_group = _GroupBox(u"Create New Revision", ACCENT)
         new_inner = StackPanel()
@@ -717,8 +786,16 @@ class RevisionManagerWindow(Window):
             txt.Foreground = TEXT
             txt.VerticalAlignment = VerticalAlignment.Center
 
+            status_val = get_sheet_status(sheet)
+            status_tag = TextBlock()
+            status_tag.Text = u"  [{0}]".format(status_val) if status_val else u""
+            status_tag.Foreground = ACCENT
+            status_tag.FontSize = 10
+            status_tag.VerticalAlignment = VerticalAlignment.Center
+
             row.Children.Add(dot)
             row.Children.Add(txt)
+            row.Children.Add(status_tag)
             item.Content = row
 
             self._sheet_item_dots[id(item)] = (item, dot)
@@ -851,6 +928,8 @@ class RevisionManagerWindow(Window):
 
         selected_sheets = self._get_selected_sheets()
 
+        new_status = self._get_chosen_status()
+
         t = Transaction(self._doc, u"Create Revision + Apply to Sheets")
         try:
             t.Start()
@@ -880,11 +959,13 @@ class RevisionManagerWindow(Window):
             for sheet in selected_sheets:
                 if sheet_has_revision(sheet, rev.Id):
                     skipped += 1
-                    continue
-                id_list = List[ElementId](sheet.GetAdditionalRevisionIds())
-                id_list.Add(rev.Id)
-                sheet.SetAdditionalRevisionIds(id_list)
-                applied += 1
+                else:
+                    id_list = List[ElementId](sheet.GetAdditionalRevisionIds())
+                    id_list.Add(rev.Id)
+                    sheet.SetAdditionalRevisionIds(id_list)
+                    applied += 1
+                if new_status:
+                    set_sheet_status(sheet, new_status)
 
             t.Commit()
         except Exception as ex:
@@ -907,6 +988,8 @@ class RevisionManagerWindow(Window):
                 msg += u" {0} already had it.".format(skipped)
         else:
             msg = u"\u2713 Revision created. Select sheets and apply to stamp them."
+        if new_status:
+            msg += u"  Status \u2192 {0}.".format(new_status)
         self._set_status(msg, SUCCESS)
 
     def _on_apply(self, sender, e):
@@ -932,6 +1015,8 @@ class RevisionManagerWindow(Window):
             if result != MessageBoxResult.Yes:
                 return
 
+        new_status = self._get_chosen_status()
+
         t = Transaction(self._doc, u"Apply Revision to Sheets")
         try:
             t.Start()
@@ -940,11 +1025,14 @@ class RevisionManagerWindow(Window):
             for sheet in selected_sheets:
                 if sheet_has_revision(sheet, rev.Id):
                     skipped += 1
-                    continue
-                id_list = List[ElementId](sheet.GetAdditionalRevisionIds())
-                id_list.Add(rev.Id)
-                sheet.SetAdditionalRevisionIds(id_list)
-                applied += 1
+                else:
+                    id_list = List[ElementId](sheet.GetAdditionalRevisionIds())
+                    id_list.Add(rev.Id)
+                    sheet.SetAdditionalRevisionIds(id_list)
+                    applied += 1
+                # Always set status if chosen, even if revision was already present
+                if new_status:
+                    set_sheet_status(sheet, new_status)
             t.Commit()
         except Exception as ex:
             try:
@@ -957,8 +1045,11 @@ class RevisionManagerWindow(Window):
         msg = u"\u2713 Applied to {0} sheet(s).".format(applied)
         if skipped:
             msg += u" {0} already had it.".format(skipped)
+        if new_status:
+            msg += u"  Status \u2192 {0}.".format(new_status)
         self._set_status(msg, SUCCESS)
-        self._refresh_sheet_indicators()
+        self._populate_sheet_list([item.Tag for item in self._sheet_list.Items
+                                   if isinstance(item, ListBoxItem) and item.Tag is not None])
 
     def _on_remove(self, sender, e):
         sel = self._revision_combo.SelectedItem
@@ -1037,6 +1128,16 @@ class RevisionManagerWindow(Window):
     # -----------------------------------------------------------------------
     # UI helpers
     # -----------------------------------------------------------------------
+
+    def _get_chosen_status(self):
+        """Return the chosen status string, or None if '(no change)'."""
+        sel = self._status_combo.SelectedItem
+        if sel is None:
+            return None
+        val = sel.Content
+        if val == STATUS_OPTIONS[0]:   # "(no change)"
+            return None
+        return val
 
     def _get_selected_revision_id(self):
         sel = self._revision_combo.SelectedItem
