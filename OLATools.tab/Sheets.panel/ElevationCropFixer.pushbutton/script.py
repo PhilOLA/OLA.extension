@@ -105,7 +105,7 @@ logger = script.get_logger()
 
 XAML_PATH = os.path.join(os.path.dirname(__file__), "ui.xaml")
 
-TOOL_VERSION = "1.7.3"
+TOOL_VERSION = "1.7.4"
 
 # ---------------------------------------------------------------------------
 # Extensible storage - marks a view we have adjusted, so a later run can
@@ -1101,17 +1101,19 @@ def fix_grid(grid, view, crop_transform, target_bottom_offset, target_top_offset
 
 
 def get_elevation_view_templates():
-    """View templates whose ViewType is Elevation, sorted alphabetically,
-    for the "Elevation view template" dropdown.  Only Elevation-type
-    templates are shown - other ViewType templates are not applicable to
-    elevation views and would just clutter the list."""
+    """Every view template in the model, sorted with Elevation-type
+    templates first (alphabetically within that group), then every other
+    ViewType alphabetically.  We intentionally do NOT filter to
+    ViewType.Elevation only: in practice many offices save their
+    elevation templates under a different ViewType (e.g. Section or
+    FloorPlan), and hiding them causes templates the user needs to go
+    missing from the list.  Non-elevation templates are shown with a
+    '[ViewType]' suffix so they are easy to recognise."""
     views = FilteredElementCollector(doc).OfClass(View).WhereElementIsNotElementType().ToElements()
     items = []
     for v in views:
         try:
             if not v.IsTemplate:
-                continue
-            if v.ViewType != ViewType.Elevation:
                 continue
         except Exception:
             continue
@@ -1119,9 +1121,13 @@ def get_elevation_view_templates():
             name = v.Name
         except Exception:
             name = ""
-        items.append((name, v))
-    items.sort(key=lambda t: t[0])
-    return [t[1] for t in items]
+        try:
+            is_elevation = v.ViewType == ViewType.Elevation
+        except Exception:
+            is_elevation = False
+        items.append((not is_elevation, name, v))
+    items.sort(key=lambda t: (t[0], t[1]))
+    return [t[2] for t in items]
 
 
 def apply_view_template(view, template_id, override):
@@ -2562,12 +2568,18 @@ class CropFixerWindow(forms.WPFWindow):
     @staticmethod
     def template_display_name(tmpl):
         try:
-            return tmpl.Name
+            name = tmpl.Name
         except Exception:
             try:
-                return "Template {}".format(tmpl.Id)
+                name = "Template {}".format(tmpl.Id)
             except Exception:
                 return "(unreadable template)"
+        try:
+            if tmpl.ViewType != ViewType.Elevation:
+                return "{} [{}]".format(name, tmpl.ViewType)
+        except Exception:
+            pass
+        return name
 
     def load_templates(self):
         """Collects Elevation-type view templates and populates the
