@@ -45,7 +45,7 @@ LAST_SHEET_NAME_KEY = "last_sheet_name"
 LAST_PLAN_TEMPLATE_KEY = "last_plan_template_name"
 LAST_ELEV_TEMPLATE_KEY = "last_elev_template_name"
 
-TOOL_VERSION = "1.0.16"
+TOOL_VERSION = "1.0.15"
 
 # ---- DEFAULTS (shown pre-filled in the dialog, editable there) ----
 GAP = 0.05  # feet between viewports in the grid (~0.6")
@@ -2522,18 +2522,25 @@ class PlaceViewsForm(forms.WPFWindow):
         try:
             self.txt_loading_status.Text = "Loading view templates…"
 
-            # Both dropdowns show all templates (ViewPlan + ViewSection + View3D).
-            # Attempting to split by class proved unreliable — templates named
-            # for elevations/sections can be stored as DB.ViewPlan in Revit,
-            # so class-based filtering silently excludes templates the user
-            # needs.  The user can find and select the correct template by name.
-            all_templates = get_selectable_view_templates()
-            self.plan_view_templates = all_templates
+            # Plan templates: ViewPlan class is sufficient — OfClass(DB.ViewPlan)
+            # only ever returns floor/ceiling/area/engineering plan views, so no
+            # additional ViewType filter is needed (and avoids IronPython enum
+            # comparison issues that were silently dropping valid templates).
+            self.plan_view_templates = get_selectable_view_templates(
+                view_classes=(DB.ViewPlan,))
             plan_tmpl_names = ["(none)"] + [t.Name for t in self.plan_view_templates]
             stripped_plan_names = [n.strip() for n in plan_tmpl_names]
             self.cmb_plan_template.ItemsSource = plan_tmpl_names
 
-            self.elev_view_templates = all_templates
+            # Elevation templates: ViewSection class only.
+            # OfClass(DB.ViewSection) covers Elevation, Section and Detail
+            # views. ViewType.Elevation filtering was too restrictive —
+            # elevation templates in some projects carry ViewType=Section,
+            # causing them to be silently excluded.  Class-only is the
+            # safest approach; plan templates are already separated by using
+            # DB.ViewPlan above, so cross-contamination is not possible.
+            self.elev_view_templates = get_selectable_view_templates(
+                view_classes=(DB.ViewSection,))
             elev_tmpl_names = ["(none)"] + [t.Name for t in self.elev_view_templates]
             stripped_elev_names = [n.strip() for n in elev_tmpl_names]
             self.cmb_elev_template.ItemsSource = elev_tmpl_names
