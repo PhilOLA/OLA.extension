@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.3
+Export & Publish v3.5.4
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -710,7 +710,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.3 - Log",
+        u"Export & Publish v3.5.4 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -749,7 +749,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.5.3"
+    Title="Export &amp; Publish — v3.5.4"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -999,7 +999,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.5.3" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.4" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
@@ -2370,8 +2370,29 @@ ACCDocs not found"
             if idx >= 0 and self.print_sets:
                 _, vss = self.print_sets[idx]
                 sheets = get_sheets_from_print_set(vss)
+                # Single-pass title block lookup — one collector for all sheets
+                # (avoids N per-sheet FilteredElementCollector calls on the UI thread)
+                tb_size_map = get_all_sheet_sizes(doc)
+                MM_PER_FT = 304.8
+                ISO_SIZES = [("A4",210,297),("A3",297,420),("A2",420,594),
+                             ("A1",594,841),("A0",841,1189)]
+                TOLERANCE = 35
                 for sh in sheets:
-                    _add_row(sh)
+                    size = None
+                    try:
+                        o = sh.Outline
+                        w = abs(o.Max.U - o.Min.U) * MM_PER_FT
+                        h = abs(o.Max.V - o.Min.V) * MM_PER_FT
+                        lo, hi = min(w, h), max(w, h)
+                        for label, s, l in ISO_SIZES:
+                            if abs(lo - s) < TOLERANCE and abs(hi - l) < TOLERANCE:
+                                size = label
+                                break
+                    except Exception:
+                        pass
+                    if size is None:
+                        size = tb_size_map.get(sh.Id.IntegerValue, u"—")
+                    _add_row(sh, size=size)
                 self._sheets = list(sheets)
 
         elif is_all:
