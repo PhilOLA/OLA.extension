@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.9
+Export & Publish v3.5.11
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -282,6 +282,18 @@ def get_sheets_from_print_set(view_sheet_set):
     sheets.sort(key=lambda s: s.SheetNumber)
     return sheets
 
+# ISO paper size labels used for title block name matching.
+# Defined at module level so both get_sheet_size() and get_all_sheet_sizes()
+# share the same list without duplication.
+ISO_SIZES = [
+    ("A4",  210,  297),
+    ("A3",  297,  420),
+    ("A2",  420,  594),
+    ("A1",  594,  841),
+    ("A0",  841, 1189),
+]
+
+
 def get_sheet_size(sheet):
     """Return A0/A1/A2/A3/A4 for a single sheet.
     Uses model-wide title block name lookup (OfCategory, no view-scope,
@@ -291,7 +303,8 @@ def get_sheet_size(sheet):
     forces Revit to regenerate that view's graphics ("Generating graphics
     for Sheet: X"), which is unacceptable on large projects.
     Returns u"—" if the title block name does not contain a size label."""
-    # Title block family/type name (model-wide, no view-scope, no geometry)
+    # Title block family/type name via GetTypeId() — avoids the
+    # .Symbol.Family chain; reads type metadata only, no geometry.
     try:
         sid = sheet.Id.IntegerValue
         for tb in FilteredElementCollector(doc)\
@@ -300,10 +313,12 @@ def get_sheet_size(sheet):
             try:
                 if tb.OwnerViewId.IntegerValue != sid:
                     continue
-                name = (tb.Symbol.Family.Name + " " + tb.Symbol.Name).upper()
-                for label, _, _ in ISO_SIZES:
-                    if label in name:
-                        return label
+                tblock_type = doc.GetElement(tb.GetTypeId())
+                if tblock_type:
+                    name = (tblock_type.FamilyName + " " + tblock_type.Name).upper()
+                    for label, _, _ in ISO_SIZES:
+                        if label in name:
+                            return label
                 break  # found the title block but name didn't match — stop
             except Exception:
                 pass
@@ -317,14 +332,6 @@ def get_all_sheet_sizes(document):
     Uses OfCategory(OST_TitleBlocks) — model-wide, no view-scope, no geometry,
     does NOT trigger sheet graphics regeneration.
     Call once before a multi-sheet loop; also safe for user-initiated actions."""
-    ISO_SIZES = [
-        ("A4",  210,  297),
-        ("A3",  297,  420),
-        ("A2",  420,  594),
-        ("A1",  594,  841),
-        ("A0",  841, 1189),
-    ]
-
     size_map = {}
     try:
         tbs = FilteredElementCollector(document)\
@@ -334,13 +341,16 @@ def get_all_sheet_sizes(document):
         for tb in tbs:
             try:
                 owner_id = tb.OwnerViewId.IntegerValue
-                # Name-only: family name + type name — fast, no geometry access
+                # Name-only via GetTypeId() — avoids .Symbol.Family chain,
+                # reads type metadata only, no geometry access.
                 try:
-                    name = (tb.Symbol.Family.Name + " " + tb.Symbol.Name).upper()
-                    for label, _, _ in ISO_SIZES:
-                        if label in name:
-                            size_map[owner_id] = label
-                            break
+                    tblock_type = document.GetElement(tb.GetTypeId())
+                    if tblock_type:
+                        name = (tblock_type.FamilyName + " " + tblock_type.Name).upper()
+                        for label, _, _ in ISO_SIZES:
+                            if label in name:
+                                size_map[owner_id] = label
+                                break
                 except Exception:
                     pass
             except Exception:
@@ -450,6 +460,16 @@ def _export_pdfs_native(sheets, settings, log_lines, progress_cb=None):
 
         fname    = build_sheet_filename(sheet, settings["prefix"], settings["include_revision"])
         out_path = os.path.join(output_folder, fname + ".pdf")
+
+        # Skip sheets Revit marks as non-printable (e.g. sheets with broken
+        # views). Matches the external script's `if sheet.printable:` guard.
+        try:
+            if not sheet.CanBePrinted:
+                log_lines.append(u"  - Skipped (not printable): {}".format(fname + ".pdf"))
+                results.append((sheet, out_path, False, "Not printable"))
+                continue
+        except Exception:
+            pass  # CanBePrinted unavailable — proceed and let Export handle it
 
         if File.Exists(out_path) and settings.get("overwrite_prompt"):
             from System.Windows import MessageBox, MessageBoxButton, MessageBoxResult, MessageBoxImage
@@ -570,6 +590,15 @@ def export_dwgs(sheets, settings, log_lines, progress_cb=None):
             sheet, settings["prefix"], settings["include_revision"])
         desired_path = os.path.join(output_folder, desired_name + ".dwg")
 
+        # Skip sheets Revit marks as non-printable — same guard as PDF path.
+        try:
+            if not sheet.CanBePrinted:
+                log_lines.append(u"  - Skipped (not printable): {}".format(desired_name + ".dwg"))
+                results.append((sheet, desired_path, False, "Not printable"))
+                continue
+        except Exception:
+            pass
+
         if File.Exists(desired_path) and settings.get("overwrite_prompt"):
             from System.Windows import MessageBox, MessageBoxButton, MessageBoxResult, MessageBoxImage
             res = MessageBox.Show(
@@ -652,7 +681,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.9 - Log",
+        u"Export & Publish v3.5.11 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -691,7 +720,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.5.9"
+    Title="Export &amp; Publish — v3.5.11"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -941,7 +970,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.5.9" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.11" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
@@ -3263,6 +3292,24 @@ ACCDocs not found"
         log_lines.append(u"Sheets in print set '{}': {}".format(
             settings["print_set_name"], len(sheets)))
         log_lines.append(u"")
+
+        # Reload the keynote table before exporting so any keynote file
+        # changes since the doc was opened are reflected in the output.
+        # Matches the external script's KeynoteTable.Reload() call.
+        try:
+            from Autodesk.Revit.DB import Transaction as _T
+            _kt = DB.KeynoteTable.GetKeynoteTable(doc)
+            if _kt is not None:
+                _t = _T(doc, "Reload Keynote Table")
+                _t.Start()
+                try:
+                    _kt.Reload(None)
+                    _t.Commit()
+                except Exception:
+                    try: _t.RollBack()
+                    except Exception: pass
+        except Exception:
+            pass  # keynotes not in use — skip silently
 
         pdf_paths   = []
         merged_path = None
