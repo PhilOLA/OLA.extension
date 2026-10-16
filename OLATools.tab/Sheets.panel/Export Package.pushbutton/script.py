@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.5
+Export & Publish v3.5.6
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -676,7 +676,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.5 - Log",
+        u"Export & Publish v3.5.6 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -715,7 +715,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.5.5"
+    Title="Export &amp; Publish — v3.5.6"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -965,7 +965,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.5.5" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.6" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
@@ -1829,6 +1829,10 @@ class ExportDialog(object):
         self.named_print_settings   = []     # resolved in _on_window_loaded
         self._sheets    = []
         self._last_log  = None
+        # Gate: _build_sheet_table is a no-op until _ready=True so that
+        # _populate()/_update_ui() called inside the Loaded handler don't
+        # trigger any Revit API calls before the window has rendered.
+        self._ready     = False
 
         self._build_window()
         # Wire Loaded so the window appears immediately; populate after
@@ -2256,6 +2260,9 @@ ACCDocs not found"
     # Sheet DataGrid helpers
     def _build_sheet_table(self):
         """Rebuild the sheet DataGrid for the active sheet-selection mode."""
+        # Guard: skip until the window has rendered (deferred via BeginInvoke)
+        if not getattr(self, '_ready', False):
+            return
         is_ps     = bool(self.rb_print_set.IsChecked)
         is_active = bool(self.rb_active_sheet.IsChecked)
         is_all    = bool(self.rb_all_sheets.IsChecked)
@@ -2336,15 +2343,14 @@ ACCDocs not found"
             if idx >= 0 and self.print_sets:
                 _, vss = self.print_sets[idx]
                 sheets = get_sheets_from_print_set(vss)
-                # Single-pass title block lookup — one collector for all sheets
-                # (avoids N per-sheet FilteredElementCollector calls on the UI thread)
-                tb_size_map = get_all_sheet_sizes(doc)
+                # Use ViewSheet.Outline only — no FilteredElementCollector so
+                # Revit never triggers "Generating graphics" during table build.
                 MM_PER_FT = 304.8
                 ISO_SIZES = [("A4",210,297),("A3",297,420),("A2",420,594),
                              ("A1",594,841),("A0",841,1189)]
                 TOLERANCE = 35
                 for sh in sheets:
-                    size = None
+                    size = u"—"
                     try:
                         o = sh.Outline
                         w = abs(o.Max.U - o.Min.U) * MM_PER_FT
@@ -2356,8 +2362,6 @@ ACCDocs not found"
                                 break
                     except Exception:
                         pass
-                    if size is None:
-                        size = tb_size_map.get(sh.Id.IntegerValue, u"—")
                     _add_row(sh, size=size)
                 self._sheets = list(sheets)
 
@@ -2369,16 +2373,15 @@ ACCDocs not found"
                 [s for s in collector.ToElements() if not s.IsPlaceholder],
                 key=lambda s: s.SheetNumber
             )
-            # Single-pass title block lookup — one collector for all sheets
-            tb_size_map = get_all_sheet_sizes(doc)
+            # Use ViewSheet.Outline only — no FilteredElementCollector on
+            # OST_TitleBlocks so Revit never triggers "Generating graphics".
+            MM_PER_FT = 304.8
+            ISO_SIZES = [("A4",210,297),("A3",297,420),("A2",420,594),
+                         ("A1",594,841),("A0",841,1189)]
+            TOLERANCE = 35
             for sh in sheets:
-                # Method 1: Outline (fast, no collector)
-                size = None
+                size = u"—"
                 try:
-                    MM_PER_FT = 304.8
-                    ISO_SIZES = [("A4",210,297),("A3",297,420),("A2",420,594),
-                                 ("A1",594,841),("A0",841,1189)]
-                    TOLERANCE = 35
                     o = sh.Outline
                     w = abs(o.Max.U - o.Min.U) * MM_PER_FT
                     h = abs(o.Max.V - o.Min.V) * MM_PER_FT
@@ -2389,9 +2392,6 @@ ACCDocs not found"
                             break
                 except Exception:
                     pass
-                # Methods 2 & 3: pre-built title block map
-                if size is None:
-                    size = tb_size_map.get(sh.Id.IntegerValue, u"—")
                 _add_row(sh, size=size)
             self._sheets = sheets
 
@@ -3475,11 +3475,25 @@ ACCDocs not found"
 
     # ------------------------------------------------------------------
     def _on_window_loaded(self, s, e):
-        """Called by WPF after the window is rendered — do all expensive work here."""
+        """Called by WPF after the window tree is built (before first paint).
+        We do cheap setup here, then defer the sheet-table build to
+        DispatcherPriority.Background so Revit API calls run only AFTER
+        the window is visible on screen."""
         self._populate()
         self._wire_events()
-        self._update_ui()
+        self._update_ui()        # _build_sheet_table is gated by _ready=False here
         self._refresh_presets()
+        # Defer first sheet load: window renders at Render priority (7),
+        # Background priority (4) is lower, so this runs after first paint.
+        self.win.Dispatcher.BeginInvoke(
+            DispatcherPriority.Background,
+            System.Action(self._first_sheet_load)
+        )
+
+    def _first_sheet_load(self):
+        """Deferred: runs after window renders. Unlocks _build_sheet_table."""
+        self._ready = True
+        self._build_sheet_table()
 
     # ------------------------------------------------------------------
     def show(self):
