@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.6
+Export & Publish v3.5.7
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -283,11 +283,9 @@ def get_sheets_from_print_set(view_sheet_set):
     return sheets
 
 def get_sheet_size(sheet):
-    """Return A0/A1/A2/A3/A4.  Three methods tried in order:
-    1. sheet.Outline (paper boundary, feet)
-    2. Title block family/type name
-    3. Title block bounding box (feet)
-    Falls back to "WxH" raw mm string for debugging if nothing matches."""
+    """Return A0/A1/A2/A3/A4 from ViewSheet.Outline only.
+    NO FilteredElementCollector — safe to call without triggering regeneration.
+    Returns u"—" if Outline is unavailable or dimensions don't match any ISO size."""
     MM_PER_FT = 304.8
     ISO_SIZES = [
         ("A4",  210,  297),
@@ -297,50 +295,25 @@ def get_sheet_size(sheet):
         ("A0",  841, 1189),
     ]
     TOLERANCE = 35
-
-    def classify(w_mm, h_mm):
-        lo, hi = min(w_mm, h_mm), max(w_mm, h_mm)
-        for label, s, l in ISO_SIZES:
-            if abs(lo - s) < TOLERANCE and abs(hi - l) < TOLERANCE:
-                return label
-        return None
-
-    # Method 1: ViewSheet.Outline — direct paper-boundary API
     try:
         o = sheet.Outline
         w = abs(o.Max.U - o.Min.U) * MM_PER_FT
         h = abs(o.Max.V - o.Min.V) * MM_PER_FT
-        result = classify(w, h)
-        if result:
-            return result
-        # Store raw dims for fallback display
-        raw = u"{:.0f}x{:.0f}".format(max(w, h), min(w, h))
-    except Exception:
-        raw = "?"
-
-    # Method 2: title block family/type name — no geometry, no graphics generation
-    try:
-        col = FilteredElementCollector(doc, sheet.Id)\
-            .OfCategory(BuiltInCategory.OST_TitleBlocks)\
-            .WhereElementIsNotElementType()
-        for tb in col:
-            try:
-                name = (tb.Symbol.Family.Name + " " + tb.Symbol.Name).upper()
-                for label, _, _ in ISO_SIZES:
-                    if label in name:
-                        return label
-            except Exception:
-                pass
+        lo, hi = min(w, h), max(w, h)
+        for label, s, l in ISO_SIZES:
+            if abs(lo - s) < TOLERANCE and abs(hi - l) < TOLERANCE:
+                return label
     except Exception:
         pass
-    return raw  # show raw mm from Outline, or "?" if Outline also failed
+    return u"—"
 
 
 
 def get_all_sheet_sizes(document):
     """Single-pass title block collector: returns {sheet_elem_id (int): size_str}.
-    Name-only lookup — no geometry/BoundingBox calls so Revit never generates
-    sheet graphics during collection."""
+    Name-only lookup — no BoundingBox calls — but OfCategory(OST_TitleBlocks) may
+    force doc.Regenerate() on a dirty model.  Only call from user-initiated actions
+    (e.g. Auto-assign), NEVER from automatic/startup paths."""
     ISO_SIZES = [
         ("A4",  210,  297),
         ("A3",  297,  420),
@@ -676,7 +649,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.6 - Log",
+        u"Export & Publish v3.5.7 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -715,7 +688,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.5.6"
+    Title="Export &amp; Publish — v3.5.7"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -965,7 +938,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.5.6" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.7" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
@@ -2398,7 +2371,7 @@ ACCDocs not found"
         elif is_active:
             active = get_active_sheet()
             if active:
-                _add_row(active)
+                _add_row(active, size=get_sheet_size(active))
                 self._sheets = [active]
             else:
                 self._sheets = []
