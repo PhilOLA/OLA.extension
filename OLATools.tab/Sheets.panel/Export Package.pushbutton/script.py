@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.8
+Export & Publish v3.5.9
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -284,31 +284,14 @@ def get_sheets_from_print_set(view_sheet_set):
 
 def get_sheet_size(sheet):
     """Return A0/A1/A2/A3/A4 for a single sheet.
-    Method 1: ViewSheet.Outline (stored UV bbox, no regeneration).
-    Method 2: model-wide title block name lookup (OfCategory, no view-scope,
-              no geometry — reads family/type name only, no regeneration).
-    Returns u"—" if neither method classifies the sheet."""
-    MM_PER_FT = 304.8
-    ISO_SIZES = [
-        ("A4",  210,  297),
-        ("A3",  297,  420),
-        ("A2",  420,  594),
-        ("A1",  594,  841),
-        ("A0",  841, 1189),
-    ]
-    TOLERANCE = 35
-    # Method 1: Outline
-    try:
-        o = sheet.Outline
-        w = abs(o.Max.U - o.Min.U) * MM_PER_FT
-        h = abs(o.Max.V - o.Min.V) * MM_PER_FT
-        lo, hi = min(w, h), max(w, h)
-        for label, s, l in ISO_SIZES:
-            if abs(lo - s) < TOLERANCE and abs(hi - l) < TOLERANCE:
-                return label
-    except Exception:
-        pass
-    # Method 2: title block family/type name (model-wide, no view-scope)
+    Uses model-wide title block name lookup (OfCategory, no view-scope,
+    no geometry — reads family/type name only, does NOT trigger sheet
+    graphics regeneration).
+    NOTE: ViewSheet.Outline was removed — accessing it on a dirty view
+    forces Revit to regenerate that view's graphics ("Generating graphics
+    for Sheet: X"), which is unacceptable on large projects.
+    Returns u"—" if the title block name does not contain a size label."""
+    # Title block family/type name (model-wide, no view-scope, no geometry)
     try:
         sid = sheet.Id.IntegerValue
         for tb in FilteredElementCollector(doc)\
@@ -669,7 +652,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.8 - Log",
+        u"Export & Publish v3.5.9 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -708,7 +691,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.5.8"
+    Title="Export &amp; Publish — v3.5.9"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -958,7 +941,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.5.8" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.9" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
@@ -1981,17 +1964,21 @@ class ExportDialog(object):
         self.cbo_raster_quality.SelectedIndex = \
             _rq_options.index(last_rq) if last_rq in _rq_options else 2
 
-        # Print sets
+        # Print sets — populate names only; do NOT set SelectedIndex here.
+        # Auto-selecting a print set on open triggers _build_sheet_table which
+        # calls vss.Views and OfCategory(OST_TitleBlocks); on a dirty model
+        # that forces doc.Regenerate() → "Generating graphics for Sheet: X"
+        # for every dirty sheet.  The user explicitly selects a print set to
+        # trigger sheet loading, which is one deliberate Revit API call.
         for name, _ in self.print_sets:
             self.cbo_print_set.Items.Add(name)
-        last_ps = cfg.get("last_print_set", "")
-        ps_idx  = next((i for i, (n, _) in enumerate(self.print_sets)
-                        if n == last_ps), 0)
         if self.print_sets:
-            self.cbo_print_set.SelectedIndex = ps_idx
             self.txt_no_print_sets.Visibility = Visibility.Collapsed
         else:
             self.txt_no_print_sets.Visibility = Visibility.Visible
+        # Store the last-used name so we can highlight it in the tooltip /
+        # or the user knows which one to pick — but do NOT set SelectedIndex.
+        self._last_print_set = cfg.get("last_print_set", "")
 
         # DWG setups
         self.cbo_dwg_setup.Items.Add("(Revit default)")
@@ -2336,30 +2323,11 @@ ACCDocs not found"
             if idx >= 0 and self.print_sets:
                 _, vss = self.print_sets[idx]
                 sheets = get_sheets_from_print_set(vss)
-                # One model-wide title block name map — no view-scope, no geometry.
+                # Size from title block family/type name only — no sh.Outline,
+                # which forces per-sheet graphics regeneration on dirty views.
                 tb_size_map = get_all_sheet_sizes(doc)
-                MM_PER_FT = 304.8
-                ISO_SIZES = [("A4",210,297),("A3",297,420),("A2",420,594),
-                             ("A1",594,841),("A0",841,1189)]
-                TOLERANCE = 35
                 for sh in sheets:
-                    # Method 1: Outline
-                    size = None
-                    try:
-                        o = sh.Outline
-                        w = abs(o.Max.U - o.Min.U) * MM_PER_FT
-                        h = abs(o.Max.V - o.Min.V) * MM_PER_FT
-                        lo, hi = min(w, h), max(w, h)
-                        for label, s, l in ISO_SIZES:
-                            if abs(lo - s) < TOLERANCE and abs(hi - l) < TOLERANCE:
-                                size = label
-                                break
-                    except Exception:
-                        pass
-                    # Method 2: title block family/type name
-                    if size is None:
-                        size = tb_size_map.get(sh.Id.IntegerValue, u"—")
-                    _add_row(sh, size=size)
+                    _add_row(sh, size=tb_size_map.get(sh.Id.IntegerValue, u"—"))
                 self._sheets = list(sheets)
 
         elif is_all:
@@ -2370,30 +2338,11 @@ ACCDocs not found"
                 [s for s in collector.ToElements() if not s.IsPlaceholder],
                 key=lambda s: s.SheetNumber
             )
-            # One model-wide title block name map — no view-scope, no geometry.
+            # Size from title block family/type name only — no sh.Outline,
+            # which forces per-sheet graphics regeneration on dirty views.
             tb_size_map = get_all_sheet_sizes(doc)
-            MM_PER_FT = 304.8
-            ISO_SIZES = [("A4",210,297),("A3",297,420),("A2",420,594),
-                         ("A1",594,841),("A0",841,1189)]
-            TOLERANCE = 35
             for sh in sheets:
-                # Method 1: Outline
-                size = None
-                try:
-                    o = sh.Outline
-                    w = abs(o.Max.U - o.Min.U) * MM_PER_FT
-                    h = abs(o.Max.V - o.Min.V) * MM_PER_FT
-                    lo, hi = min(w, h), max(w, h)
-                    for label, s, l in ISO_SIZES:
-                        if abs(lo - s) < TOLERANCE and abs(hi - l) < TOLERANCE:
-                            size = label
-                            break
-                except Exception:
-                    pass
-                # Method 2: title block family/type name
-                if size is None:
-                    size = tb_size_map.get(sh.Id.IntegerValue, u"—")
-                _add_row(sh, size=size)
+                _add_row(sh, size=tb_size_map.get(sh.Id.IntegerValue, u"—"))
             self._sheets = sheets
 
         elif is_active:
