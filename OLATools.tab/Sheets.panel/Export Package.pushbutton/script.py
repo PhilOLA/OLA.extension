@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.4
+Export & Publish v3.5.5
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -318,13 +318,12 @@ def get_sheet_size(sheet):
     except Exception:
         raw = "?"
 
-    # Methods 2 & 3: title block family
+    # Method 2: title block family/type name — no geometry, no graphics generation
     try:
         col = FilteredElementCollector(doc, sheet.Id)\
             .OfCategory(BuiltInCategory.OST_TitleBlocks)\
             .WhereElementIsNotElementType()
         for tb in col:
-            # 2. Name
             try:
                 name = (tb.Symbol.Family.Name + " " + tb.Symbol.Name).upper()
                 for label, _, _ in ISO_SIZES:
@@ -332,28 +331,16 @@ def get_sheet_size(sheet):
                         return label
             except Exception:
                 pass
-            # 3. Bounding box
-            try:
-                bb = tb.get_BoundingBox(None)
-                if bb:
-                    w = abs(bb.Max.X - bb.Min.X) * MM_PER_FT
-                    h = abs(bb.Max.Y - bb.Min.Y) * MM_PER_FT
-                    result = classify(w, h)
-                    if result:
-                        return result
-                    raw = u"{:.0f}x{:.0f}".format(max(w, h), min(w, h))
-            except Exception:
-                pass
     except Exception:
         pass
-    return raw  # show raw mm so we can debug
+    return raw  # show raw mm from Outline, or "?" if Outline also failed
 
 
 
 def get_all_sheet_sizes(document):
     """Single-pass title block collector: returns {sheet_elem_id (int): size_str}.
-    One FilteredElementCollector across the whole model — fast even on 1000+ sheets."""
-    MM_PER_FT = 304.8
+    Name-only lookup — no geometry/BoundingBox calls so Revit never generates
+    sheet graphics during collection."""
     ISO_SIZES = [
         ("A4",  210,  297),
         ("A3",  297,  420),
@@ -361,14 +348,6 @@ def get_all_sheet_sizes(document):
         ("A1",  594,  841),
         ("A0",  841, 1189),
     ]
-    TOLERANCE = 35
-
-    def classify(w_mm, h_mm):
-        lo, hi = min(w_mm, h_mm), max(w_mm, h_mm)
-        for label, s, l in ISO_SIZES:
-            if abs(lo - s) < TOLERANCE and abs(hi - l) < TOLERANCE:
-                return label
-        return None
 
     size_map = {}
     try:
@@ -379,26 +358,13 @@ def get_all_sheet_sizes(document):
         for tb in tbs:
             try:
                 owner_id = tb.OwnerViewId.IntegerValue
-                # Method A: family/type name
+                # Name-only: family name + type name — fast, no geometry access
                 try:
                     name = (tb.Symbol.Family.Name + " " + tb.Symbol.Name).upper()
                     for label, _, _ in ISO_SIZES:
                         if label in name:
                             size_map[owner_id] = label
-                            raise StopIteration
-                except StopIteration:
-                    continue
-                except Exception:
-                    pass
-                # Method B: bounding box
-                try:
-                    bb = tb.get_BoundingBox(None)
-                    if bb:
-                        w = abs(bb.Max.X - bb.Min.X) * MM_PER_FT
-                        h = abs(bb.Max.Y - bb.Min.Y) * MM_PER_FT
-                        result = classify(w, h)
-                        size_map[owner_id] = result if result else \
-                            u"{:.0f}x{:.0f}".format(max(w, h), min(w, h))
+                            break
                 except Exception:
                     pass
             except Exception:
@@ -710,7 +676,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.4 - Log",
+        u"Export & Publish v3.5.5 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -749,7 +715,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.5.4"
+    Title="Export &amp; Publish — v3.5.5"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -999,7 +965,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.5.4" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.5" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
