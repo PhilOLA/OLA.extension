@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.7
+Export & Publish v3.5.8
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -283,9 +283,11 @@ def get_sheets_from_print_set(view_sheet_set):
     return sheets
 
 def get_sheet_size(sheet):
-    """Return A0/A1/A2/A3/A4 from ViewSheet.Outline only.
-    NO FilteredElementCollector — safe to call without triggering regeneration.
-    Returns u"—" if Outline is unavailable or dimensions don't match any ISO size."""
+    """Return A0/A1/A2/A3/A4 for a single sheet.
+    Method 1: ViewSheet.Outline (stored UV bbox, no regeneration).
+    Method 2: model-wide title block name lookup (OfCategory, no view-scope,
+              no geometry — reads family/type name only, no regeneration).
+    Returns u"—" if neither method classifies the sheet."""
     MM_PER_FT = 304.8
     ISO_SIZES = [
         ("A4",  210,  297),
@@ -295,6 +297,7 @@ def get_sheet_size(sheet):
         ("A0",  841, 1189),
     ]
     TOLERANCE = 35
+    # Method 1: Outline
     try:
         o = sheet.Outline
         w = abs(o.Max.U - o.Min.U) * MM_PER_FT
@@ -305,15 +308,32 @@ def get_sheet_size(sheet):
                 return label
     except Exception:
         pass
+    # Method 2: title block family/type name (model-wide, no view-scope)
+    try:
+        sid = sheet.Id.IntegerValue
+        for tb in FilteredElementCollector(doc)\
+                .OfCategory(BuiltInCategory.OST_TitleBlocks)\
+                .WhereElementIsNotElementType():
+            try:
+                if tb.OwnerViewId.IntegerValue != sid:
+                    continue
+                name = (tb.Symbol.Family.Name + " " + tb.Symbol.Name).upper()
+                for label, _, _ in ISO_SIZES:
+                    if label in name:
+                        return label
+                break  # found the title block but name didn't match — stop
+            except Exception:
+                pass
+    except Exception:
+        pass
     return u"—"
 
 
-
 def get_all_sheet_sizes(document):
-    """Single-pass title block collector: returns {sheet_elem_id (int): size_str}.
-    Name-only lookup — no BoundingBox calls — but OfCategory(OST_TitleBlocks) may
-    force doc.Regenerate() on a dirty model.  Only call from user-initiated actions
-    (e.g. Auto-assign), NEVER from automatic/startup paths."""
+    """Model-wide title block name lookup: {sheet_elem_id (int): size_str}.
+    Uses OfCategory(OST_TitleBlocks) — model-wide, no view-scope, no geometry,
+    does NOT trigger sheet graphics regeneration.
+    Call once before a multi-sheet loop; also safe for user-initiated actions."""
     ISO_SIZES = [
         ("A4",  210,  297),
         ("A3",  297,  420),
@@ -649,7 +669,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.7 - Log",
+        u"Export & Publish v3.5.8 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -688,7 +708,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.5.7"
+    Title="Export &amp; Publish — v3.5.8"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -938,7 +958,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.5.7" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.8" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
@@ -2316,14 +2336,15 @@ ACCDocs not found"
             if idx >= 0 and self.print_sets:
                 _, vss = self.print_sets[idx]
                 sheets = get_sheets_from_print_set(vss)
-                # Use ViewSheet.Outline only — no FilteredElementCollector so
-                # Revit never triggers "Generating graphics" during table build.
+                # One model-wide title block name map — no view-scope, no geometry.
+                tb_size_map = get_all_sheet_sizes(doc)
                 MM_PER_FT = 304.8
                 ISO_SIZES = [("A4",210,297),("A3",297,420),("A2",420,594),
                              ("A1",594,841),("A0",841,1189)]
                 TOLERANCE = 35
                 for sh in sheets:
-                    size = u"—"
+                    # Method 1: Outline
+                    size = None
                     try:
                         o = sh.Outline
                         w = abs(o.Max.U - o.Min.U) * MM_PER_FT
@@ -2335,6 +2356,9 @@ ACCDocs not found"
                                 break
                     except Exception:
                         pass
+                    # Method 2: title block family/type name
+                    if size is None:
+                        size = tb_size_map.get(sh.Id.IntegerValue, u"—")
                     _add_row(sh, size=size)
                 self._sheets = list(sheets)
 
@@ -2346,14 +2370,15 @@ ACCDocs not found"
                 [s for s in collector.ToElements() if not s.IsPlaceholder],
                 key=lambda s: s.SheetNumber
             )
-            # Use ViewSheet.Outline only — no FilteredElementCollector on
-            # OST_TitleBlocks so Revit never triggers "Generating graphics".
+            # One model-wide title block name map — no view-scope, no geometry.
+            tb_size_map = get_all_sheet_sizes(doc)
             MM_PER_FT = 304.8
             ISO_SIZES = [("A4",210,297),("A3",297,420),("A2",420,594),
                          ("A1",594,841),("A0",841,1189)]
             TOLERANCE = 35
             for sh in sheets:
-                size = u"—"
+                # Method 1: Outline
+                size = None
                 try:
                     o = sh.Outline
                     w = abs(o.Max.U - o.Min.U) * MM_PER_FT
@@ -2365,6 +2390,9 @@ ACCDocs not found"
                             break
                 except Exception:
                     pass
+                # Method 2: title block family/type name
+                if size is None:
+                    size = tb_size_map.get(sh.Id.IntegerValue, u"—")
                 _add_row(sh, size=size)
             self._sheets = sheets
 
