@@ -148,6 +148,15 @@ def save_last_prompt(extra, style_index, titleblock_name, recent_extras, h_offse
     script.save_config()
 
 
+def _sanitize_revit_name(name):
+    """Strip characters Revit prohibits in element names: \\ ? : { } [ ] | ; < >
+    The default 3D view name '{3D}' contains curly braces which cause a
+    'Name cannot include prohibited characters' error when used in sheet or
+    drafting view names."""
+    import re
+    return re.sub(r'[\\?:\{\}\[\]|;<>]', '', name).strip() or "View"
+
+
 def _ascii_safe(text):
     """Sanitize user-entered text to ASCII - IronPython 2 crashes when
     non-ASCII chars (smart quotes, em dashes etc. pasted from Word) get
@@ -397,7 +406,7 @@ class PromptForm(forms.WPFWindow):
             else:
                 target = place_image_on_drafting_view(
                     self.doc, self.result_image_path,
-                    "AI Render - {}".format(self.view_name)
+                    "AI Render - {}".format(_sanitize_revit_name(self.view_name))
                 )
                 target_desc = "drafting view '{}'".format(_element_name(target))
 
@@ -865,7 +874,7 @@ def create_before_after_sheet(doc, source_path, result_path, view_name, prompt_t
 
     with revit.Transaction("Create AI Render Comparison Sheet"):
         sheet = DB.ViewSheet.Create(doc, titleblock.Id)
-        sheet.Name = "AI Render - {}".format(view_name)
+        sheet.Name = "AI Render - {}".format(_sanitize_revit_name(view_name))
         sheet.SheetNumber = next_sheet_number(doc)
 
         before_type = DB.ImageType.Create(
