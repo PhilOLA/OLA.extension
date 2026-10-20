@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.11
+Export & Publish v3.5.12
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -681,7 +681,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.11 - Log",
+        u"Export & Publish v3.5.12 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -720,7 +720,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.5.11"
+    Title="Export &amp; Publish — v3.5.12"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -970,7 +970,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.5.11" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.12" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
@@ -3103,6 +3103,7 @@ ACCDocs not found"
 
         # Sheets
         use_active = bool(self.rb_active_sheet.IsChecked)
+        use_all    = bool(self.rb_all_sheets.IsChecked)
         if use_active:
             active = get_active_sheet()
             if not active:
@@ -3110,6 +3111,17 @@ ACCDocs not found"
                 return None
             sheets         = [active]
             print_set_name = "Active Sheet"
+        elif use_all:
+            # "Select Sheets" mode — collect manually checked rows from the grid
+            sheets = []
+            if self._sheet_dt is not None:
+                for row in self._sheet_dt.Rows:
+                    if bool(row["Included"]):
+                        elem_id = DB.ElementId(int(row["ElemId"]))
+                        sh = doc.GetElement(elem_id)
+                        if sh is not None:
+                            sheets.append(sh)
+            print_set_name = "Selected Sheets"
         else:
             ps_idx = self.cbo_print_set.SelectedIndex
             if ps_idx < 0 or not self.print_sets:
