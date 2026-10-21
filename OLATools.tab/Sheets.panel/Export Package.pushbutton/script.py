@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.12
+Export & Publish v3.5.13
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -681,7 +681,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.12 - Log",
+        u"Export & Publish v3.5.13 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -720,7 +720,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.5.12"
+    Title="Export &amp; Publish — v3.5.13"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -970,7 +970,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.5.12" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.13" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
@@ -1070,39 +1070,26 @@ XAML = u"""
                               ToolTip="Auto-assign each sheet to the print setup whose name best matches the sheet size"/>
                     </Grid>
 
-                    <!-- #4 Drawn By filter -->
-                    <Grid Margin="0,0,0,2">
-                      <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                      </Grid.ColumnDefinitions>
-                      <TextBlock Grid.Column="0" Text="Drawn by:"
-                                 Foreground="#888780" FontSize="11"
-                                 VerticalAlignment="Center" Margin="0,0,6,0"/>
-                      <ComboBox x:Name="CboDrawnByFilter" Grid.Column="1"
-                                ToolTip="Filter sheet list by Drawn By value"/>
-                      <Button x:Name="BtnClearFilter" Grid.Column="2"
-                              Content="✕" Style="{StaticResource GhostButton}"
-                              Margin="4,0,0,0" FontSize="10"
-                              ToolTip="Clear Drawn By filter"/>
-                    </Grid>
                     <!-- Filter + All / None -->
                     <Grid Margin="0,0,0,4">
                       <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                       </Grid.ColumnDefinitions>
-                      <TextBox x:Name="TxtSheetFilter" Grid.Column="0"
+                      <TextBlock Grid.Column="0" Text="Filter:"
+                                 Foreground="#888780" FontSize="11"
+                                 VerticalAlignment="Center" Margin="0,0,6,0"/>
+                      <TextBox x:Name="TxtSheetFilter" Grid.Column="1"
                                Foreground="#AAAAAA"
-                               ToolTip="Filter by sheet number, name or size (e.g. A1)"/>
-                      <Button x:Name="BtnSelectAll"   Content="All"  Grid.Column="1"
+                               ToolTip="Filter by sheet number or name"/>
+                      <Button x:Name="BtnSelectAll"   Content="All"  Grid.Column="2"
                               Style="{StaticResource GhostButton}" Margin="4,0,0,0"
-                              ToolTip="Select all visible sheets"/>
-                      <Button x:Name="BtnDeselectAll" Content="None" Grid.Column="2"
+                              ToolTip="Check all visible sheets"/>
+                      <Button x:Name="BtnDeselectAll" Content="None" Grid.Column="3"
                               Style="{StaticResource GhostButton}" Margin="4,0,0,0"
-                              ToolTip="Deselect all visible sheets"/>
+                              ToolTip="Uncheck all visible sheets"/>
                     </Grid>
                   </StackPanel>
 
@@ -1935,8 +1922,6 @@ class ExportDialog(object):
         self._setup_color_map     = {}  # #1 name → hex color
 
         # #4 Drawn By filter
-        self.cbo_drawn_by_filter  = _("CboDrawnByFilter")
-        self.btn_clear_filter     = _("BtnClearFilter")
 
         # #6 Presets
         self.cbo_presets          = _("CboPresets")
@@ -2140,8 +2125,6 @@ ACCDocs not found"
         self.btn_auto_assign.Click            += self._auto_assign_by_size   # #7
 
         # #4 Drawn By filter
-        self.cbo_drawn_by_filter.SelectionChanged += self._on_drawn_by_filter_changed
-        self.btn_clear_filter.Click               += self._on_clear_filter
 
         # #6 Presets
         self.btn_save_preset.Click += self._save_preset
@@ -2371,7 +2354,8 @@ ACCDocs not found"
             # which forces per-sheet graphics regeneration on dirty views.
             tb_size_map = get_all_sheet_sizes(doc)
             for sh in sheets:
-                _add_row(sh, size=tb_size_map.get(sh.Id.IntegerValue, u"—"))
+                # Default unchecked — user explicitly picks which sheets to export
+                _add_row(sh, included=False, size=tb_size_map.get(sh.Id.IntegerValue, u"—"))
             self._sheets = sheets
 
         elif is_active:
@@ -2385,7 +2369,6 @@ ACCDocs not found"
         self._sheet_dt = dt
         dt.ColumnChanged += self._on_sheet_dt_changed
         self.dg_sheets.ItemsSource = dt.DefaultView
-        self._populate_drawn_by_filter()  # #4
         self._apply_sheet_filter(reset=True)
         self._refresh_sheet_count()
         self._update_variable_mode()
@@ -2395,53 +2378,16 @@ ACCDocs not found"
             return
         if reset:
             self.txt_sheet_filter.Text = ""
-            self.cbo_drawn_by_filter.SelectedIndex = 0
         q = (self.txt_sheet_filter.Text or "").strip().upper()
-        # #4 Drawn By filter
-        drawn_by_filter = ""
-        try:
-            sel = self.cbo_drawn_by_filter.SelectedItem
-            if sel and str(sel) != "(All)":
-                drawn_by_filter = str(sel).replace("'", "''")
-        except Exception:
-            pass
-
-        parts = []
         if q:
             safe = q.replace("'", "''")
-            parts.append(
-                "(SheetNo LIKE '%{0}%' OR SheetName LIKE '%{0}%' OR Size LIKE '%{0}%')"
-                .format(safe))
-        if drawn_by_filter:
-            parts.append("DrawnBy = '{}'".format(drawn_by_filter))
-
-        self._sheet_dt.DefaultView.RowFilter = " AND ".join(parts)
+            self._sheet_dt.DefaultView.RowFilter = \
+                "(SheetNo LIKE '%{0}%' OR SheetName LIKE '%{0}%' OR Size LIKE '%{0}%')"\
+                .format(safe)
+        else:
+            self._sheet_dt.DefaultView.RowFilter = ""
         self._refresh_sheet_count()
 
-    def _populate_drawn_by_filter(self):
-        """Fill the Drawn By filter combobox with unique values from the current table."""
-        try:
-            self.cbo_drawn_by_filter.Items.Clear()
-            self.cbo_drawn_by_filter.Items.Add("(All)")
-            if self._sheet_dt is not None:
-                seen = set()
-                for row in self._sheet_dt.Rows:
-                    val = (row["DrawnBy"] or "").strip()
-                    if val and val not in seen:
-                        seen.add(val)
-                        self.cbo_drawn_by_filter.Items.Add(val)
-            self.cbo_drawn_by_filter.SelectedIndex = 0
-        except Exception:
-            pass
-
-    def _on_drawn_by_filter_changed(self, s, e):
-        self._apply_sheet_filter()
-
-    def _on_clear_filter(self, s, e):
-        try:
-            self.cbo_drawn_by_filter.SelectedIndex = 0
-        except Exception:
-            pass
 
     # ------------------------------------------------------------------
     # #7 Auto-assign print setup by sheet size
@@ -2633,9 +2579,10 @@ ACCDocs not found"
         checked  = sum(1 for r in self._sheet_dt.Rows if bool(r["Included"]))
         visible  = len(self._sheet_dt.DefaultView)
         if visible < total:
-            label = u"{}/{} selected  ({} visible)".format(checked, total, visible)
+            # Filter is active — make clear how many will export vs how many are shown
+            label = u"{} checked  ·  {} of {} shown".format(checked, visible, total)
         else:
-            label = u"{}/{} selected".format(checked, total)
+            label = u"{} of {} checked".format(checked, total)
         self.txt_sheet_count.Text = label
 
     def _on_sheet_dt_changed(self, s, e):
