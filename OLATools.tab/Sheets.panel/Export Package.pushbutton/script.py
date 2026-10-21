@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.13
+Export & Publish v3.5.14
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -681,7 +681,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.13 - Log",
+        u"Export & Publish v3.5.14 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -720,7 +720,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.5.13"
+    Title="Export &amp; Publish — v3.5.14"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -970,7 +970,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.5.13" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.14" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
@@ -2245,8 +2245,11 @@ ACCDocs not found"
         self.pnl_sheet_order.Visibility = \
             Visibility.Visible if is_ps else Visibility.Collapsed
 
-        # Sheet count
-        self._update_sheet_count()
+        # Refresh the count label only — do NOT rebuild the table here.
+        # _build_sheet_table is called explicitly when the sheet selection
+        # mode or print set changes; rebuilding it on every UI event (output
+        # type, merge toggle, etc.) would wipe the user's checkbox selections.
+        self._refresh_sheet_count()
 
     # ------------------------------------------------------------------
     # Sheet DataGrid helpers
@@ -2599,7 +2602,7 @@ ACCDocs not found"
     # ------------------------------------------------------------------
     # Event handlers — output type / sheet sel / merge
     def _on_output_changed(self, s, e):    self._update_ui()
-    def _on_sheet_sel_changed(self, s, e): self._update_ui()
+    def _on_sheet_sel_changed(self, s, e): self._update_ui(); self._build_sheet_table()
     def _on_merge_changed(self, s, e):     self._update_ui()
     def _on_tab_changed(self, s, e):       self.txt_status.Text = ""
 
