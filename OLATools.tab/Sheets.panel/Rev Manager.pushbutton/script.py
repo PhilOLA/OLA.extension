@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Revision Manager  v1.2.0
+Revision Manager  v1.3.0
 pyRevit IronPython pushbutton tool
 Create, apply, and remove revisions on selected sheets.
 Optionally set OLA Sheet Status shared parameter on apply.
@@ -28,14 +28,19 @@ from Autodesk.Revit.DB import (
     Transaction,
 )
 try:
-    from Autodesk.Revit.DB import RevisionNumberType
-    # Verify the enum values are accessible
-    _ = RevisionNumberType.Numeric
-    _ = RevisionNumberType.Alphanumeric
-    _HAS_NUMBER_TYPE = True
+    from Autodesk.Revit.DB import RevisionNumberingSequence
+    _HAS_NUMBERING_SEQUENCE = True
 except Exception:
-    RevisionNumberType = None
-    _HAS_NUMBER_TYPE = False
+    RevisionNumberingSequence = None
+    _HAS_NUMBERING_SEQUENCE = False
+
+try:
+    from Autodesk.Revit.DB import WorksharingUtils, CheckoutStatus
+    _HAS_WORKSHARING = True
+except Exception:
+    WorksharingUtils = None
+    CheckoutStatus = None
+    _HAS_WORKSHARING = False
 from System.Windows import (
     Window, WindowStartupLocation, Thickness, GridLength,
     GridUnitType, VerticalAlignment, HorizontalAlignment,
@@ -84,7 +89,7 @@ WHITE    = hex_brush("#FFFFFF")
 BTN_BG   = hex_brush("#2D2D2D")
 SELECTED = hex_brush("#1E2A38")
 
-VERSION  = u"v1.2.0"
+VERSION  = u"v1.3.0"
 
 # ---------------------------------------------------------------------------
 # Drawing Status options
@@ -191,6 +196,36 @@ def next_sequence_number(doc):
     if not revs:
         return 1
     return revs[-1].SequenceNumber + 1
+
+
+def get_alphanumeric_sequence(doc):
+    """Return the Alphanumeric RevisionNumberingSequence element, or None."""
+    if not _HAS_NUMBERING_SEQUENCE:
+        return None
+    try:
+        seqs = FilteredElementCollector(doc).OfClass(RevisionNumberingSequence).ToElements()
+        for s in seqs:
+            if s.Name == u"Alphanumeric":
+                return s
+        return None
+    except Exception:
+        return None
+
+
+def check_sheet_editable(doc, sheet):
+    """Return (editable, owner_str).
+    editable=False means another user owns the sheet in a workshared model."""
+    if not _HAS_WORKSHARING or not doc.IsWorkshared:
+        return True, None
+    try:
+        status = WorksharingUtils.GetCheckoutStatus(doc, sheet.Id)
+        if status == CheckoutStatus.OwnedByOtherUser:
+            info = WorksharingUtils.GetWorksharingTooltipInfo(doc, sheet.Id)
+            owner = (info.Owner or u"another user") if info else u"another user"
+            return False, owner
+    except Exception:
+        pass
+    return True, None
 
 
 # ---------------------------------------------------------------------------
@@ -614,11 +649,11 @@ class RevisionManagerWindow(Window):
         self._num_alpha.Margin = Thickness(14, 0, 0, 0)
         num_type_row.Children.Add(self._num_alpha)
 
-        if _HAS_NUMBER_TYPE:
+        if _HAS_NUMBERING_SEQUENCE:
             new_inner.Children.Add(num_type_lbl)
             new_inner.Children.Add(num_type_row)
         else:
-            # API doesn't support NumberType on this Revit version — hide controls
+            # RevisionNumberingSequence not available in this Revit version — hide controls
             num_type_lbl.Visibility = System.Windows.Visibility.Collapsed
             num_type_row.Visibility = System.Windows.Visibility.Collapsed
 
@@ -966,24 +1001,21 @@ class RevisionManagerWindow(Window):
                 rev.RevisionDate = date_str
             if issued_by:
                 rev.IssuedBy = issued_by
-            if _HAS_NUMBER_TYPE:
-                try:
-                    num_type = (RevisionNumberType.Alphanumeric
-                                if self._num_alpha.IsChecked == True
-                                else RevisionNumberType.Numeric)
-                    # IronPython CLR sometimes requires explicit setter
-                    try:
-                        rev.NumberType = num_type
-                    except Exception:
-                        rev.set_NumberType(num_type)
-                except Exception:
-                    pass
+            if _HAS_NUMBERING_SEQUENCE and bool(self._num_alpha.IsChecked):
+                alpha_seq = get_alphanumeric_sequence(self._doc)
+                if alpha_seq:
+                    rev.RevisionNumberingSequenceId = alpha_seq.Id
             if mark_issued:
                 rev.Issued = True
 
             applied = 0
             skipped = 0
+            locked = 0
             for sheet in selected_sheets:
+                editable, owner = check_sheet_editable(self._doc, sheet)
+                if not editable:
+                    locked += 1
+                    continue
                 if sheet_has_revision(sheet, rev.Id):
                     skipped += 1
                 else:
@@ -1017,7 +1049,11 @@ class RevisionManagerWindow(Window):
             msg = u"\u2713 Revision created. Select sheets and apply to stamp them."
         if new_status:
             msg += u"  Status \u2192 {0}.".format(new_status)
-        self._set_status(msg, SUCCESS)
+        if locked:
+            msg += u"  \u26a0 {0} sheet(s) skipped (owned by another user).".format(locked)
+            self._set_status(msg, WARNING)
+        else:
+            self._set_status(msg, SUCCESS)
 
     def _on_apply(self, sender, e):
         sel = self._revision_combo.SelectedItem
@@ -1049,7 +1085,12 @@ class RevisionManagerWindow(Window):
             t.Start()
             applied = 0
             skipped = 0
+            locked = 0
             for sheet in selected_sheets:
+                editable, owner = check_sheet_editable(self._doc, sheet)
+                if not editable:
+                    locked += 1
+                    continue
                 if sheet_has_revision(sheet, rev.Id):
                     skipped += 1
                 else:
@@ -1074,7 +1115,11 @@ class RevisionManagerWindow(Window):
             msg += u" {0} already had it.".format(skipped)
         if new_status:
             msg += u"  Status \u2192 {0}.".format(new_status)
-        self._set_status(msg, SUCCESS)
+        if locked:
+            msg += u"  \u26a0 {0} sheet(s) skipped (owned by another user).".format(locked)
+            self._set_status(msg, WARNING)
+        else:
+            self._set_status(msg, SUCCESS)
         self._populate_sheet_list([item.Tag for item in self._sheet_list.Items
                                    if isinstance(item, ListBoxItem) and item.Tag is not None])
 
@@ -1106,7 +1151,12 @@ class RevisionManagerWindow(Window):
             t.Start()
             removed = 0
             skipped = 0
+            locked = 0
             for sheet in selected_sheets:
+                editable, owner = check_sheet_editable(self._doc, sheet)
+                if not editable:
+                    locked += 1
+                    continue
                 if not sheet_has_revision(sheet, rev.Id):
                     skipped += 1
                     continue
@@ -1126,7 +1176,11 @@ class RevisionManagerWindow(Window):
         msg = u"\u2713 Removed from {0} sheet(s).".format(removed)
         if skipped:
             msg += u" {0} didn\u2019t have it.".format(skipped)
-        self._set_status(msg, SUCCESS)
+        if locked:
+            msg += u"  \u26a0 {0} sheet(s) skipped (owned by another user).".format(locked)
+            self._set_status(msg, WARNING)
+        else:
+            self._set_status(msg, SUCCESS)
         self._refresh_sheet_indicators()
 
     def _on_desc_changed(self, sender, e):

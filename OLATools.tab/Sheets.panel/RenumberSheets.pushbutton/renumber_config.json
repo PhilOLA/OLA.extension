@@ -1,58 +1,58 @@
 {
   "240041_DRH_Block_M-and-N-ARCXX-M3-v2024": {
     "sheet_filter": "FLOOR- RLS", 
-    "log_folder": "D:\\12 AI Testing\\TESTING", 
+    "log_folder": "G:\\240041 - Bethlehem Hospital\\Working Documents\\4 Construction Documentation\\Issued\\6 RLS Logs", 
     "t2_param": "OLA Sheet Title 2", 
     "groups": [
       {
-        "start": 6001, 
+        "start": 8001, 
         "name": "BLOCK M BASEMENT", 
-        "end": 6099
+        "end": 8099
       }, 
       {
-        "start": 6101, 
+        "start": 8101, 
         "name": "BLOCK M GROUND", 
-        "end": 6199
+        "end": 8199
       }, 
       {
-        "start": 6201, 
+        "start": 8201, 
         "name": "BLOCK M FIRST", 
-        "end": 6299
+        "end": 8299
       }, 
       {
-        "start": 6301, 
+        "start": 8301, 
         "name": "BLOCK M SECOND", 
-        "end": 6399
+        "end": 8399
       }, 
       {
-        "start": 6401, 
+        "start": 8401, 
         "name": "BLOCK N-1 GROUND", 
-        "end": 6499
+        "end": 8499
       }, 
       {
-        "start": 6501, 
+        "start": 8501, 
         "name": "BLOCK N-2 GROUND", 
-        "end": 6599
+        "end": 8599
       }, 
       {
-        "start": 6601, 
+        "start": 8601, 
         "name": "BLOCK N-1 FIRST", 
-        "end": 6699
+        "end": 8699
       }, 
       {
-        "start": 6701, 
+        "start": 8701, 
         "name": "BLOCK N-2 FIRST", 
-        "end": 6799
+        "end": 8799
       }, 
       {
-        "start": 6801, 
+        "start": 8801, 
         "name": "BLOCK N-1 SECOND", 
-        "end": 6899
+        "end": 8899
       }, 
       {
-        "start": 6901, 
+        "start": 8901, 
         "name": "BLOCK N-2 SECOND", 
-        "end": 6999
+        "end": 8999
       }
     ]
   }
