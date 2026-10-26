@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.15
+Export & Publish v3.5.16
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -295,17 +295,52 @@ ISO_SIZES = [
 ]
 
 
+def _tb_name_str(tb):
+    """Fast title block name lookup via direct Symbol property access.
+    Uses tb.Symbol.Family.Name + tb.Symbol.Name — no GetElement() call,
+    pure property reads, instant. Falls back through progressively simpler
+    paths so any one failure doesn't silently discard the name."""
+    parts = []
+    try:
+        sym = tb.Symbol
+        # Family name via Symbol.Family.Name (most reliable path)
+        try:
+            fname = sym.Family.Name
+            if fname: parts.append(fname)
+        except Exception:
+            pass
+        # Type name via Symbol.Name
+        try:
+            tname = sym.Name
+            if tname: parts.append(tname)
+        except Exception:
+            pass
+    except Exception:
+        pass
+    # Last resort: instance .Name (returns "TypeName" on FamilyInstance)
+    if not parts:
+        try:
+            n = tb.Name
+            if n: parts.append(n)
+        except Exception:
+            pass
+    return " ".join(parts).upper()
+
+
+def _size_label_from_name(name_upper):
+    """Return ISO size label found in name_upper, or None."""
+    for label, _, _ in ISO_SIZES:
+        if label in name_upper:
+            return label
+    return None
+
+
 def get_sheet_size(sheet):
     """Return A0/A1/A2/A3/A4 for a single sheet.
-    Uses model-wide title block name lookup (OfCategory, no view-scope,
-    no geometry — reads family/type name only, does NOT trigger sheet
+    Reads title block Symbol.Family.Name + Symbol.Name (direct property
+    access, no GetElement calls, no geometry — does NOT trigger view
     graphics regeneration).
-    NOTE: ViewSheet.Outline was removed — accessing it on a dirty view
-    forces Revit to regenerate that view's graphics ("Generating graphics
-    for Sheet: X"), which is unacceptable on large projects.
-    Returns u"—" if the title block name does not contain a size label."""
-    # Title block family/type name via GetTypeId() — avoids the
-    # .Symbol.Family chain; reads type metadata only, no geometry.
+    Returns u"—" if no ISO label found."""
     try:
         sid = sheet.Id.IntegerValue
         for tb in FilteredElementCollector(doc)\
@@ -314,13 +349,8 @@ def get_sheet_size(sheet):
             try:
                 if tb.OwnerViewId.IntegerValue != sid:
                     continue
-                tblock_type = doc.GetElement(tb.GetTypeId())
-                if tblock_type:
-                    name = (tblock_type.FamilyName + " " + tblock_type.Name).upper()
-                    for label, _, _ in ISO_SIZES:
-                        if label in name:
-                            return label
-                break  # found the title block but name didn't match — stop
+                lbl = _size_label_from_name(_tb_name_str(tb))
+                return lbl if lbl else u"—"
             except Exception:
                 pass
     except Exception:
@@ -329,10 +359,10 @@ def get_sheet_size(sheet):
 
 
 def get_all_sheet_sizes(document):
-    """Model-wide title block name lookup: {sheet_elem_id (int): size_str}.
-    Uses OfCategory(OST_TitleBlocks) — model-wide, no view-scope, no geometry,
-    does NOT trigger sheet graphics regeneration.
-    Call once before a multi-sheet loop; also safe for user-initiated actions."""
+    """Model-wide title block lookup: {sheet_elem_id (int): size_str}.
+    Reads Symbol.Family.Name + Symbol.Name (direct property access,
+    no GetElement calls, no geometry — does NOT trigger view regen).
+    Call once before a multi-sheet loop."""
     size_map = {}
     try:
         tbs = FilteredElementCollector(document)\
@@ -342,18 +372,9 @@ def get_all_sheet_sizes(document):
         for tb in tbs:
             try:
                 owner_id = tb.OwnerViewId.IntegerValue
-                # Name-only via GetTypeId() — avoids .Symbol.Family chain,
-                # reads type metadata only, no geometry access.
-                try:
-                    tblock_type = document.GetElement(tb.GetTypeId())
-                    if tblock_type:
-                        name = (tblock_type.FamilyName + " " + tblock_type.Name).upper()
-                        for label, _, _ in ISO_SIZES:
-                            if label in name:
-                                size_map[owner_id] = label
-                                break
-                except Exception:
-                    pass
+                lbl = _size_label_from_name(_tb_name_str(tb))
+                if lbl:
+                    size_map[owner_id] = lbl
             except Exception:
                 pass
     except Exception:
@@ -684,7 +705,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.15 - Log",
+        u"Export & Publish v3.5.16 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -723,7 +744,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.5.14"
+    Title="Export &amp; Publish — v3.5.16"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -973,7 +994,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.5.14" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.16" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
@@ -2704,6 +2725,13 @@ ACCDocs not found"
                 self._sheet_dt.DefaultView.Sort = "Size ASC, SheetNo ASC"
             # Apply initial colors
             self._refresh_row_colors()
+        # Disable global Paper Size when Variable mode active (each sheet uses
+        # the paper size from its own assigned named print setup).
+        try:
+            self.cbo_paper_size.IsEnabled = not is_var
+            self.cbo_paper_size.Opacity   = 0.4 if is_var else 1.0
+        except Exception:
+            pass
 
     def _on_print_setup_mode_changed(self, s, e):
         self._update_variable_mode()
@@ -3196,7 +3224,10 @@ ACCDocs not found"
             "open_folder":      bool(self.chk_open_folder.IsChecked),
             "overwrite_prompt": bool(self.chk_overwrite.IsChecked),
             "raster_quality":   str(self.cbo_raster_quality.SelectedItem or "Medium"),
-            "paper_size":       str(self.cbo_paper_size.SelectedItem or "A1"),
+            # Variable mode: each sheet uses its assigned print setup's paper size;
+            # global Paper Size dropdown is disabled and must not override it.
+            "paper_size":       "" if self._is_variable_mode()
+                                else str(self.cbo_paper_size.SelectedItem or "A1"),
         }
 
     def _collect_variable_setups(self):
