@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.16
+Export & Publish v3.5.17
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -475,6 +475,9 @@ def _export_pdfs_native(sheets, settings, log_lines, progress_cb=None):
     total    = len(sheets)
 
     sheet_setups = settings.get("sheet_print_setups", {})
+    # Pre-compute per-sheet sizes once — fast Symbol.Family.Name lookup,
+    # no geometry. Used to set PaperFormat per-sheet regardless of mode.
+    sheet_size_map = get_all_sheet_sizes(doc)
 
     for idx, sheet in enumerate(sheets):
         if progress_cb:
@@ -505,13 +508,25 @@ def _export_pdfs_native(sheets, settings, log_lines, progress_cb=None):
             elif res == MessageBoxResult.Cancel:
                 settings["overwrite_prompt"] = False
 
-        # Per-sheet settings override for Variable mode
+        # Per-sheet overrides: print setup (Variable mode) and paper size
+        # (always use each sheet's detected title block size; fall back to
+        # the global Paper Size dropdown only when detection returns nothing).
         sh_settings = settings
+        sid = sheet.Id.IntegerValue
+
+        # Variable mode: per-sheet named print setup
         if sheet_setups:
-            ps_name = sheet_setups.get(sheet.Id.IntegerValue, "")
+            ps_name = sheet_setups.get(sid, "")
             if ps_name != settings.get("print_setup_name", ""):
                 sh_settings = dict(settings)
                 sh_settings["print_setup_name"] = ps_name
+
+        # Per-sheet paper size from title block — overrides global dropdown
+        detected_size = sheet_size_map.get(sid)
+        if detected_size:
+            if sh_settings is settings:
+                sh_settings = dict(settings)
+            sh_settings["paper_size"] = detected_size
 
         try:
             opts = _build_pdf_options(sh_settings)
@@ -705,7 +720,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.16 - Log",
+        u"Export & Publish v3.5.17 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -744,7 +759,7 @@ XAML = u"""
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Export &amp; Publish — v3.5.16"
+    Title="Export &amp; Publish — v3.5.17"
     Width="1300" Height="1200" MinHeight="700"
     WindowStartupLocation="CenterScreen"
     Background="#1E1E1E"
@@ -994,7 +1009,7 @@ XAML = u"""
         <TextBlock Text="Export &amp; Publish"
                    FontSize="22" FontWeight="Bold" Foreground="#4FC3F7"/>
         <TextBlock FontSize="11" Margin="0,3,0,0">
-          <Run Text="v3.5.16" Foreground="#4FC3F7"/>
+          <Run Text="v3.5.17" Foreground="#4FC3F7"/>
           <Run Text="  ·  Batch PDF / DWG export from Revit print sets — with optional ACC/Forma publish."
                Foreground="#888780"/>
         </TextBlock>
