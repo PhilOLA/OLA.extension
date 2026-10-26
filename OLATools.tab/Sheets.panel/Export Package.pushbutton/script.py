@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Export & Publish v3.5.14
+Export & Publish v3.5.15
 pyRevit pushbutton script - IronPython 2.7
 Engine: IronPython2
 
@@ -146,6 +146,7 @@ def load_config():
         "last_print_set":        "",
         "last_dwg_setup":        "",
         "last_print_setup":      "",
+        "last_paper_size":       "A1",
         "last_output_type":      "PDF",
         "last_prefix":           "",
         "last_open_folder":      True,
@@ -511,7 +512,9 @@ def _build_pdf_options(settings):
     from Autodesk.Revit.DB import PageOrientationType, PaperPlacementType, ZoomType as RVTZoomType
     opts = PDFExportOptions()
     pp = _resolve_print_params(settings)
-    _set_paper_size(opts, pp["paper_size"])
+    # Prefer the explicit paper size from the UI dropdown (settings["paper_size"]).
+    # Fall back to the size extracted from the named PrintSetting only if absent.
+    _set_paper_size(opts, settings.get("paper_size") or pp["paper_size"])
     try:
         opts.ColorDepth = ColorDepthType.BlackLine \
             if pp["black_white"] else ColorDepthType.Color
@@ -681,7 +684,7 @@ def write_log(settings, log_lines, output_folder):
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(output_folder, "ExportLog_{}.txt".format(ts))
     header   = [
-        u"Export & Publish v3.5.14 - Log",
+        u"Export & Publish v3.5.15 - Log",
         u"Date/Time : {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         u"Prefix    : {}".format(settings.get("prefix", "")),
         u"Print Set : {}".format(settings.get("print_set_name", "")),
@@ -1514,6 +1517,10 @@ XAML = u"""
                       <Separator Style="{StaticResource Divider}"/>
                       <ComboBox x:Name="CboPrintSetup" Margin="0,4,0,6"/>
 
+                      <TextBlock Text="PAPER SIZE" Style="{StaticResource SectionLabel}" Margin="0,4,0,2"/>
+                      <Separator Style="{StaticResource Divider}"/>
+                      <ComboBox x:Name="CboPaperSize" Margin="0,4,0,6"/>
+
                       <TextBlock Text="OPTIONS" Style="{StaticResource SectionLabel}" Margin="0,4,0,4"/>
                       <Separator Style="{StaticResource Divider}"/>
                       <WrapPanel Margin="0,2,0,0">
@@ -1907,6 +1914,7 @@ class ExportDialog(object):
         # Print settings / appearance / options
         self.exp_print_settings   = _("ExpPrintSettings")
         self.cbo_print_setup      = _("CboPrintSetup")
+        self.cbo_paper_size       = _("CboPaperSize")
         self.chk_open_folder      = _("ChkOpenFolder")
         self.chk_overwrite        = _("ChkOverwritePrompt")
         self.cbo_raster_quality   = _("CboRasterQuality")
@@ -1969,6 +1977,14 @@ class ExportDialog(object):
                          if n == last_ps), 1)   # default to "(Use defaults)"
         self.cbo_print_setup.SelectedIndex = ps_idx
         self.exp_print_settings.IsExpanded = cfg.get("last_print_expanded", False)
+
+        # Paper size dropdown — explicit control; bypasses unreliable PrintSetting parsing
+        _paper_size_options = ["A0", "A1", "A2", "A3", "A4"]
+        for sz in _paper_size_options:
+            self.cbo_paper_size.Items.Add(sz)
+        last_sz = cfg.get("last_paper_size", "A1")
+        self.cbo_paper_size.SelectedIndex = (
+            _paper_size_options.index(last_sz) if last_sz in _paper_size_options else 1)
 
         # Raster quality dropdown
         _rq_options = ["Draft", "Low", "Medium", "High", "Presentation"]
@@ -3180,6 +3196,7 @@ ACCDocs not found"
             "open_folder":      bool(self.chk_open_folder.IsChecked),
             "overwrite_prompt": bool(self.chk_overwrite.IsChecked),
             "raster_quality":   str(self.cbo_raster_quality.SelectedItem or "Medium"),
+            "paper_size":       str(self.cbo_paper_size.SelectedItem or "A1"),
         }
 
     def _collect_variable_setups(self):
@@ -3393,6 +3410,7 @@ ACCDocs not found"
         cfg["last_acc_overwrite"]   = settings["acc_overwrite"]
         cfg["last_print_expanded"]  = bool(self.exp_print_settings.IsExpanded)
         cfg["last_raster_quality"]  = settings.get("raster_quality", "Medium")
+        cfg["last_paper_size"]      = settings.get("paper_size", "A1")
         if settings.get("dwg_setup_name"):
             cfg["last_dwg_setup"] = settings["dwg_setup_name"]
 
